@@ -1,0 +1,935 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Papyrus", "IM Fell English", "Cinzel", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Papyrus", "IM Fell English", "Cinzel", serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+:root {
+  --parch-light: #f5eedc;
+  --parch-mid: #dfc593;
+  --parch-dark: #cda86b;
+  --ink: #3a2a18;
+  --quill-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' fill='none'%3E%3Cpath d='M4 28 L28 4' stroke='%233a2a18' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpath d='M6 26 C2 18, 10 8, 28 4 C20 12, 14 18, 10 22 Z' fill='%237a5a2e' stroke='%233a2a18' stroke-width='0.5'/%3E%3Cpath d='M10 22 C14 26, 22 22, 28 4 C18 10, 12 14, 6 26 Z' fill='%23a27f4d' stroke='%233a2a18' stroke-width='0.5'/%3E%3Cpath d='M12 20 L9 18 M16 16 L13 14 M20 12 L17 10' stroke='%233a2a18' stroke-width='0.5'/%3E%3Cpath d='M4 28 L1 31' stroke='%233a2a18' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E") 1 31, auto;
+  --eraser-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' fill='none'%3E%3Cpath d='M6 18 L18 6 L26 14 L14 26 Z' fill='%23dfc593' stroke='%233a2a18' stroke-width='1.5'/%3E%3Cpath d='M6 18 L12 24 L14 26 M18 6 L22 10' stroke='%233a2a18' stroke-width='1'/%3E%3Cpath d='M14 26 L6 18 L10 14 L18 22 Z' fill='%23cda86b' stroke='%233a2a18' stroke-width='1'/%3E%3C/svg%3E") 6 18, auto;
+  --select-cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32' fill='none'%3E%3Cpath d='M4 4 L14 24 L18 16 L26 14 Z' fill='%23f5eedc' stroke='%233a2a18' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cpath d='M16 16 L25 25' stroke='%233a2a18' stroke-width='1.8' stroke-linecap='round'/%3E%3Ccircle cx='4' cy='4' r='1' fill='%237a1f12'/%3E%3C/svg%3E") 4 4, auto;
+  --sheet-padding-x: 5.25rem;
+  --roller-height: clamp(1.5rem, 8vw, 3.625rem);
+  --roller-margin: calc(var(--roller-height) * -0.2413);
+  --handle-base-size: 1rem;
+}
+
+html {
+  overflow: hidden;
+  height: 100%;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+::-webkit-scrollbar {
+  display: none !important; /* Chrome, Safari and Opera */
+}
+
+body {
+  height: 100vh;
+  background-color: #0c0805;
+  overflow: hidden;
+  font-family: "Papyrus", "IM Fell English", "Cinzel", serif;
+  margin: 0;
+}
+
+.unrolled-state {
+  cursor: default;
+}
+
+.unrolled-state button,
+.unrolled-state a,
+.unrolled-state [role="button"],
+.unrolled-state .clickable-seal {
+  cursor: pointer;
+}
+
+/* ---------- floating dust ---------- */
+.dust {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.mote {
+  position: absolute;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #f5e3b3 0%, rgba(245,227,179,0) 70%);
+  opacity: 0;
+  animation: drift linear infinite;
+}
+
+@keyframes drift {
+  0% { transform: translateY(20vh) translateX(0); opacity: 0; }
+  15% { opacity: 0.5; }
+  85% { opacity: 0.35; }
+  100% { transform: translateY(-90vh) translateX(6vw); opacity: 0; }
+}
+
+/* ---------- parchment texture ---------- */
+.parchment-bg-container {
+  filter: url(#medieval-tears) drop-shadow(0 18px 40px rgba(0,0,0,0.65));
+}
+
+.parchment-tex {
+  background-color: var(--parch-light);
+  background-image:
+    repeating-linear-gradient(180deg, transparent 0px, rgba(40,25,10,0.015) 80px, rgba(255,245,225,0.04) 160px, transparent 240px),
+    radial-gradient(ellipse at 15% 20%, rgba(135,95,45,0.18), transparent 45%),
+    radial-gradient(ellipse at 80% 15%, rgba(135,95,45,0.14), transparent 40%),
+    radial-gradient(ellipse at 35% 85%, rgba(115,80,35,0.16), transparent 50%),
+    radial-gradient(ellipse at 75% 75%, rgba(135,95,45,0.18), transparent 45%),
+    radial-gradient(ellipse at 50% 50%, rgba(255,248,225,0.4), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.015 0.35' numOctaves='3' result='h'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.45 0 0 0 0 0.32 0 0 0 0 0.18 0.85 0 0 0 -0.15' result='hf'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.35 0.015' numOctaves='3' result='v'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.45 0 0 0 0 0.32 0 0 0 0 0.18 0.85 0 0 0 -0.15' result='vf'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' result='g'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.3 0 0 0 0 0.2 0 0 0 0 0.1 0.4 0 0 0 -0.1' result='gf'/%3E%3CfeMerge%3E%3CfeMergeNode in='gf'/%3E%3CfeMergeNode in='hf'/%3E%3CfeMergeNode in='vf'/%3E%3C/feMerge%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, var(--parch-light) 0%, var(--parch-mid) 50%, var(--parch-dark) 100%);
+}
+
+/* burnt / darkened side edges */
+.edge-burn {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(74,38,10,0.6) 0%, rgba(102,57,17,0.3) 4%, rgba(138,88,38,0.08) 12%, transparent 20%),
+    linear-gradient(270deg, rgba(74,38,10,0.6) 0%, rgba(102,57,17,0.3) 4%, rgba(138,88,38,0.08) 12%, transparent 20%),
+    linear-gradient(180deg, rgba(74,38,10,0.5) 0%, rgba(102,57,17,0.22) 3%, transparent 10%),
+    linear-gradient(0deg, rgba(74,38,10,0.5) 0%, rgba(102,57,17,0.22) 3%, transparent 10%);
+  mix-blend-mode: multiply;
+}
+
+/* ---------- candlelight overlays & flicker animations ---------- */
+.candle-glow {
+  mix-blend-mode: color-burn; /* Softer golden warming of paper grain */
+  background: radial-gradient(
+    circle 280px at var(--candle-x, 50%) var(--candle-y, 50%),
+    rgba(210, 145, 60, 0.16) 0%,
+    rgba(160, 95, 30, 0.05) 50%,
+    transparent 100%
+  );
+  opacity: 0.5;
+  will-change: transform, opacity;
+  animation: flicker-glow 2.8s infinite alternate ease-in-out;
+  transition: background 0.18s cubic-bezier(0.1, 0.8, 0.25, 1); /* organic point-light lag */
+}
+
+.candle-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  mix-blend-mode: overlay; /* Soft brightness core under cursor */
+  background: radial-gradient(
+    circle 180px at var(--candle-x, 50%) var(--candle-y, 50%),
+    rgba(255, 230, 180, 0.15) 0%,
+    rgba(255, 170, 80, 0.04) 60%,
+    transparent 100%
+  );
+  opacity: 1;
+}
+
+.candle-shadow {
+  mix-blend-mode: multiply; /* Soft warm gradient shadow vignette falloff */
+  background: radial-gradient(
+    circle 520px at var(--candle-x, 50%) var(--candle-y, 50%),
+    transparent 20%,
+    rgba(90, 50, 20, 0.05) 45%,
+    rgba(50, 25, 8, 0.18) 75%,
+    rgba(20, 8, 2, 0.38) 100%
+  );
+  opacity: 0.95;
+  will-change: filter, opacity;
+  animation: flicker-shadow 3.6s infinite alternate ease-in-out;
+  transition: background 0.18s cubic-bezier(0.1, 0.8, 0.25, 1); /* organic point-light lag */
+}
+
+@keyframes flicker-glow {
+  0% { opacity: 0.96; transform: scale(0.995); }
+  30% { opacity: 1.02; transform: scale(1.005); }
+  60% { opacity: 0.98; transform: scale(0.998); }
+  100% { opacity: 1.04; transform: scale(1.002); }
+}
+
+@keyframes flicker-shadow {
+  0% { opacity: 0.98; filter: brightness(1.005); }
+  50% { opacity: 1.01; filter: brightness(0.995); }
+  100% { opacity: 0.99; filter: brightness(1.002); }
+}
+
+/* torn side edges via clip-path on the whole sheet */
+.torn {
+  clip-path: polygon(
+    1.6% 0%, 98.4% 0%, 99.2% 2%, 98.3% 4%, 99.5% 6%, 98.6% 8.5%, 99.1% 11%,
+    98.2% 13%, 99.4% 15.5%, 98.5% 18%, 99.2% 20%, 98.3% 23%, 99.5% 25%,
+    98.4% 28%, 99.1% 30.5%, 98.2% 33%, 99.3% 35%, 98.5% 38%, 99.4% 40.5%,
+    98.3% 43%, 99.2% 45%, 98.4% 48%, 99.5% 50%, 98.3% 53%, 99.2% 55.5%,
+    98.5% 58%, 99.3% 60%, 98.2% 63%, 99.4% 65.5%, 98.4% 68%, 99.1% 70%,
+    98.3% 73%, 99.5% 75.5%, 98.4% 78%, 99.2% 80%, 98.3% 83%, 99.4% 85.5%,
+    98.5% 88%, 99.1% 90%, 98.2% 93%, 99.3% 95%, 98.4% 97.5%, 98.4% 100%,
+    1.6% 100%, 0.8% 97.5%, 1.7% 95%, 0.5% 93%, 1.5% 90%, 0.8% 88%,
+    1.8% 85.5%, 0.6% 83%, 1.6% 80%, 0.9% 78%, 1.7% 75.5%, 0.5% 73%,
+    1.6% 70%, 0.8% 68%, 1.8% 65.5%, 0.6% 63%, 1.5% 60%, 0.9% 58%,
+    1.7% 55.5%, 0.5% 53%, 1.6% 50%, 0.8% 48%, 1.8% 45%, 0.6% 43%,
+    1.5% 40.5%, 0.9% 38%, 1.7% 35%, 0.5% 33%, 1.6% 30.5%, 0.8% 28%,
+    1.8% 25%, 0.6% 23%, 1.5% 20%, 0.9% 18%, 1.7% 15.5%, 0.5% 13%,
+    1.6% 11%, 0.8% 8.5%, 1.8% 6%, 0.6% 4%, 1.5% 2%
+  );
+}
+
+/* ---------- wooden rollers ---------- */
+.roller {
+  position: relative;
+  height: var(--roller-height);
+  width: calc(100% - 2.25rem);
+  margin: 0 auto;
+  border-radius: 0px; /* flat ends to meet the wooden flange discs perfectly */
+  background:
+    /* Fine concentric paper curl sheet edge lines */
+    repeating-linear-gradient(180deg, transparent 0px, transparent 4px, rgba(40,25,10,0.06) 4px, rgba(40,25,10,0.06) 5px),
+    /* Antique parchment texture */
+    radial-gradient(ellipse at 30% 50%, rgba(135,95,45,0.15), transparent 60%),
+    radial-gradient(ellipse at 70% 50%, rgba(115,80,35,0.15), transparent 60%),
+    /* High-fidelity cylindrical shading for 3D paper roll */
+    linear-gradient(180deg, 
+      #3d250f 0%,     /* top deep scroll fold crease */
+      #8a5e2d 10%,    /* shadow roll-off */
+      #cca162 22%,    /* warm golden parchment base */
+      #f8ebd1 42%,    /* bright cylindrical highlight where light catches the curl */
+      #edd9b4 56%,    /* soft illuminated transition */
+      #cca162 75%,    /* parchment shadow side */
+      #805021 90%,    /* warm gold shadow */
+      #381c06 100%    /* bottom edge deep shadow */
+    );
+  box-shadow:
+    0 10px 24px rgba(0,0,0,0.6),
+    inset 0 2px 4px rgba(255,248,225,0.3);
+  z-index: 30;
+  cursor: var(--quill-cursor);
+}
+
+/* ---------- turned wood handles ---------- */
+.handle {
+  position: absolute;
+  top: 50%;
+  font-size: var(--handle-base-size);
+  height: 4.5em; /* Container height */
+  display: flex;
+  align-items: center;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.handle.left {
+  left: -5.125em;
+  transform: translateY(-50%);
+}
+
+.handle.right {
+  right: -5.125em;
+  transform: translateY(-50%) scaleX(-1);
+}
+
+/* The outer bulbous knob */
+.handle .knob {
+  width: 2.375em;
+  height: 3.25em;
+  border-radius: 1.625em 0.875em 0.875em 1.625em / 1.625em 1em 1em 1.625em;
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='wg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23wg)' opacity='0.2'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a0b03 0%, #4a210a 12%, #8e471d 24%, #e28e4a 34%, #ffc085 42%, #b35f24 55%, #602d0e 75%, #2a1104 90%, #0c0400 100%);
+  box-shadow:
+    0 0.5em 1.125em rgba(0,0,0,0.7),
+    inset 0 0.25em 0.375em rgba(255,220,180,0.35),
+    inset 0 -0.375em 0.625em rgba(0,0,0,0.85);
+  position: relative;
+  z-index: 5;
+}
+
+/* Additional rounded cap at the very tip of the knob */
+.handle .knob::before {
+  content: "";
+  position: absolute;
+  left: -0.3125em;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.625em;
+  height: 1em;
+  border-radius: 0.5em 0.1875em 0.1875em 0.5em / 0.5em 0.1875em 0.1875em 0.5em;
+  background: linear-gradient(180deg, #b35f24 0%, #602d0e 50%, #120601 100%);
+  box-shadow:
+    0 0.125em 0.25em rgba(0,0,0,0.5),
+    inset 0 0.0625em 0.125em rgba(255,220,180,0.2);
+}
+
+/* Thin neck connecting knob to collar */
+.handle .neck {
+  width: 1em;
+  height: 1.125em;
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='wg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='1'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23wg)' opacity='0.12'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #120601 0%, #4d260f 20%, #8c4b1d 40%, #c4763a 50%, #8c4b1d 65%, #351705 85%, #0a0300 100%);
+  box-shadow:
+    0 0.1875em 0.375em rgba(0,0,0,0.5),
+    inset 0 0.0625em 0.125em rgba(255,220,180,0.15),
+    inset 0 -0.125em 0.1875em rgba(0,0,0,0.6);
+  margin-left: -0.125em;
+  position: relative;
+  z-index: 4;
+}
+
+/* Rounded collar */
+.handle .collar {
+  width: 0.75em;
+  height: 2.625em;
+  border-radius: 0.25em 0.5em 0.5em 0.25em / 0.3125em 1.3125em 1.3125em 0.3125em;
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='wg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23wg)' opacity='0.2'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a0b03 0%, #4a210a 15%, #904c1f 25%, #e59350 36%, #ffb875 44%, #b35f24 58%, #602d0e 75%, #2a1104 90%, #0c0400 100%);
+  box-shadow:
+    0 0.3125em 0.625em rgba(0,0,0,0.55),
+    inset 0 0.125em 0.1875em rgba(255,220,180,0.25),
+    inset 0 -0.25em 0.375em rgba(0,0,0,0.7);
+  margin-left: -0.125em;
+  position: relative;
+  z-index: 5;
+}
+
+/* The large guard that caps the roller */
+.handle .guard {
+  width: 1.125em;
+  height: 4em;
+  border-radius: 0.25em 0.75em 0.75em 0.25em / 0.375em 2em 2em 0.375em;
+  background: 
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='wg'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23wg)' opacity='0.2'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a0b03 0%, #4a210a 10%, #904c1f 22%, #e59350 34%, #ffb875 42%, #b35f24 55%, #602d0e 75%, #2a1104 90%, #0c0400 100%);
+  box-shadow:
+    0 0.5em 1em rgba(0,0,0,0.65),
+    inset 0 0.1875em 0.3125em rgba(255,220,180,0.3),
+    inset -0.1875em 0 0.375em rgba(0,0,0,0.8);
+  margin-left: -0.125em;
+  position: relative;
+  z-index: 6;
+}
+
+/* Scale down handles on smaller screens to prevent overflow */
+@media (max-width: 1024px) {
+  :root {
+    --handle-base-size: 0.85rem;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --handle-base-size: 0.7rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --handle-base-size: 0.5rem;
+  }
+}
+
+@media (max-width: 380px) {
+  :root {
+    --handle-base-size: 0.4rem;
+  }
+}
+
+/* ---------- scroll rig ---------- */
+#rig {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  width: 850px;
+  max-width: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+#sheetContainer {
+  position: relative;
+  width: calc(100% - 2.25rem);
+  margin: var(--roller-margin) auto;           /* tucks under rollers */
+  z-index: 10;
+}
+
+#sheetWrap {
+  position: relative;
+  width: 100%;
+  max-height: 0;                /* animated open */
+  overflow-y: auto;
+  scrollbar-width: none !important;        /* hides scrollbar on Firefox */
+  -ms-overflow-style: none !important;     /* hides scrollbar on IE/Edge */
+  transition: max-height 3.4s cubic-bezier(.65,.02,.28,1);
+}
+
+
+
+/* Force tldraw canvas font to be Papyrus */
+.tl-container {
+  --tl-font-sans: "Papyrus", "Cinzel", "Georgia", serif !important;
+  --tl-font-serif: "Papyrus", "Georgia", serif !important;
+  --tl-font-mono: "Papyrus", "Courier New", monospace !important;
+  --tl-font-draw: "Papyrus", "Georgia", serif !important;
+}
+
+/* Only style drawn text shapes, inputs on the canvas, and their wrappers */
+.tl-text,
+.tl-text-label,
+.tl-text-input,
+.tl-text-shape-wrapper *,
+.tl-text-shape__wrapper *,
+.tl-text-shape__input,
+.tl-container svg text,
+.tl-container [data-shape-type="text"] *,
+.tl-text__outline,
+.tl-text__outline *,
+.tl-text-content,
+.tl-text-content *,
+.tl-text-measure,
+.tl-text-measure * {
+  font-family: "Papyrus", "Cinzel", "Georgia", serif !important;
+  stroke: none !important;
+  stroke-width: 0 !important;
+  paint-order: normal !important;
+  text-shadow: none !important;
+  -webkit-text-stroke: 0 !important;
+  -webkit-text-stroke-width: 0 !important;
+  color: #000000 !important;
+  fill: #000000 !important;
+  font-size: 1.35em !important;
+  font-weight: 500 !important;
+}
+
+/* Highly visible crimson red caret cursor for typing in text shapes */
+.tl-text-input {
+  caret-color: #bd1e13 !important;
+}
+
+/* While typing, highlight the text box wrapper and add an elegant guideline underneath */
+.tl-text-wrapper[data-isediting='true'] {
+  border-bottom: 2.5px dashed rgba(189, 30, 19, 0.5) !important;
+  background-color: rgba(189, 30, 19, 0.04) !important;
+  padding-bottom: 3px !important;
+  border-radius: 4px !important;
+  box-shadow: 0 1px 6px rgba(189, 30, 19, 0.08) !important;
+  transition: all 0.2s ease !important;
+}
+
+/* If a text shape has no text and is selected or hovered, show a subtle dotted parchment guideline to make it easy to click on and find */
+.tl-text-wrapper[data-hastext='false'] {
+  border: 1.5px dotted rgba(58, 42, 24, 0.3) !important;
+  background-color: rgba(58, 42, 24, 0.02) !important;
+  min-width: 80px !important;
+  min-height: 40px !important;
+  border-radius: 4px !important;
+  transition: all 0.2s ease !important;
+}
+
+.tl-text-wrapper[data-hastext='false']:hover {
+  border-color: rgba(189, 30, 19, 0.5) !important;
+  background-color: rgba(189, 30, 19, 0.03) !important;
+}
+
+#sheet {
+  position: relative;
+  padding: 64px var(--sheet-padding-x) 72px;
+  color: var(--ink);
+  box-shadow: 0 22px 60px rgba(0,0,0,0.6);
+  animation: candleFlicker 8s ease-in-out infinite;
+}
+
+@keyframes candleFlicker {
+  0%, 100% {
+    filter: brightness(1) contrast(1) saturate(1);
+  }
+  8% {
+    filter: brightness(0.97) contrast(1.02) saturate(0.98);
+  }
+  15% {
+    filter: brightness(1.03) contrast(0.98) saturate(1.02);
+  }
+  24% {
+    filter: brightness(0.95) contrast(1.04) saturate(0.96);
+  }
+  32% {
+    filter: brightness(1.02) contrast(0.99) saturate(1.01);
+  }
+  40% {
+    filter: brightness(0.98) contrast(1.01) saturate(0.99);
+  }
+  48% {
+    filter: brightness(1.04) contrast(0.97) saturate(1.03);
+  }
+  56% {
+    filter: brightness(0.96) contrast(1.03) saturate(0.97);
+  }
+  64% {
+    filter: brightness(1.01) contrast(1) saturate(1);
+  }
+  72% {
+    filter: brightness(0.97) contrast(1.02) saturate(0.98);
+  }
+  80% {
+    filter: brightness(1.03) contrast(0.98) saturate(1.02);
+  }
+  88% {
+    filter: brightness(0.99) contrast(1.01) saturate(0.99);
+  }
+  94% {
+    filter: brightness(1.02) contrast(0.99) saturate(1.01);
+  }
+}
+
+/* curled shadow just under top roller and above bottom roller */
+.curl-top, .curl-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.curl-top {
+  top: 0;
+  background: linear-gradient(180deg, rgba(30,15,5,0.45) 0%, rgba(30,15,5,0.18) 45%, transparent 100%);
+}
+
+.curl-bottom {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(30,15,5,0.45) 0%, rgba(30,15,5,0.18) 45%, transparent 100%);
+}
+
+/* content looks like physical ink on the paper */
+#content {
+  mix-blend-mode: multiply;
+  opacity: 0.95;
+}
+
+/* physical scroll revealing content naturally */
+.reveal {
+  opacity: 1;
+  transform: none;
+}
+
+/* rollers slide apart */
+#topRoller {
+  transition: transform 3.4s cubic-bezier(.65,.02,.28,1);
+}
+
+/* ---------- typography ---------- */
+.blackletter {
+  font-family: 'UnifrakturMaguntia', cursive;
+}
+
+.cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.dropcap::first-letter {
+  font-family: 'UnifrakturMaguntia', cursive;
+  font-size: 3.6em;
+  float: left;
+  line-height: 0.8;
+  padding: 0.06em 0.12em 0 0;
+  color: #7a1f12;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #8a6636;
+}
+
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #8a6636, transparent);
+}
+
+.ink-rule {
+  border-top: 1px solid rgba(90,55,20,0.35);
+}
+
+/* ---------- wax seal ---------- */
+#sealScene {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  transition: opacity 0.9s ease;
+}
+
+#seal {
+  width: 200px;
+  height: 200px;
+  border-radius: 9999px;
+  cursor: pointer;
+  background: url("/stamp.png") no-repeat center/contain;
+  filter: drop-shadow(0 12px 24px rgba(0,0,0,0.65));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.25s ease;
+  animation: sealPulse 2.4s ease-in-out infinite;
+}
+
+#seal:hover {
+  transform: scale(1.07);
+}
+
+#seal span {
+  display: none;
+}
+
+@keyframes sealPulse {
+  0%, 100% {
+    filter: drop-shadow(0 12px 24px rgba(0,0,0,0.65)) brightness(1);
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 16px 32px rgba(217,83,74,0.4)) brightness(1.08);
+    transform: scale(1.03);
+  }
+}
+
+.seal-crack {
+  animation: crack 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards !important;
+}
+
+@keyframes crack {
+  0% { transform: scale(1) rotate(0); }
+  35% { transform: scale(1.25) rotate(-8deg); }
+  70% { transform: scale(0.85) rotate(10deg); }
+  100% { transform: scale(0); opacity: 0; }
+}
+
+/* ---------- 3D seal shatter fragments ---------- */
+.shard {
+  position: absolute;
+  inset: 0;
+  background: url("/stamp.png") no-repeat center/contain;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+  filter: drop-shadow(0 6px 14px rgba(0,0,0,0.65));
+  pointer-events: none;
+}
+
+.shard span {
+  display: none;
+}
+
+.wax-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #a3231a;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.55);
+  pointer-events: none;
+}
+
+@keyframes fragmentShatter {
+  0% {
+    transform: translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
+    opacity: 1;
+  }
+  15% {
+    filter: drop-shadow(0 8px 18px rgba(0,0,0,0.85)) brightness(1.25);
+  }
+  100% {
+    transform: translate3d(var(--tx), var(--ty), var(--tz)) rotateX(var(--rx)) rotateY(var(--ry)) rotateZ(var(--rz)) scale(0.12);
+    opacity: 0;
+  }
+}
+
+@keyframes particleShatter {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--tx), var(--ty), var(--tz)) scale(0.1);
+    opacity: 0;
+  }
+}
+
+::selection {
+  background: #7a1f12;
+  color: #f2e2b8;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #171009;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #6b4b24;
+  border-radius: 6px;
+  border: 2px solid #171009;
+}
+
+/* ---------- wooden roller thud & weight animations ---------- */
+@keyframes topThud {
+  0% { transform: translateY(0) scaleY(1); }
+  15% { transform: translateY(10px) scaleY(0.9); }
+  30% { transform: translateY(-5px) scaleY(1.03); }
+  45% { transform: translateY(3px) scaleY(0.98); }
+  60% { transform: translateY(-1.5px) scaleY(1.01); }
+  75% { transform: translateY(0.5px) scaleY(1); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+
+@keyframes bottomThud {
+  0% { transform: translateY(0) scaleY(1); }
+  15% { transform: translateY(-10px) scaleY(0.9); }
+  30% { transform: translateY(5px) scaleY(1.03); }
+  45% { transform: translateY(-3px) scaleY(0.98); }
+  60% { transform: translateY(1.5px) scaleY(1.01); }
+  75% { transform: translateY(-0.5px) scaleY(1); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+
+.shake-top {
+  animation: topThud 0.55s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards;
+}
+
+.shake-bottom {
+  animation: bottomThud 0.55s cubic-bezier(0.15, 0.85, 0.35, 1.1) forwards;
+}
+
+/* ---------- forest parallax background ---------- */
+.forest-container {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+  background-color: #040806;
+}
+
+.forest-parallax {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.forest-layer {
+  position: absolute;
+  width: calc(100% + 160px);
+  height: calc(100% + 180px);
+  left: -80px;
+  bottom: -90px;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: cover;
+  transition: transform 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);
+  will-change: transform;
+}
+
+.mist-sway {
+  position: absolute;
+  inset: 0;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: cover;
+  will-change: transform;
+}
+
+@keyframes side-slow {
+  0%, 100% { transform: translateX(-20px); }
+  50% { transform: translateX(20px); }
+}
+
+@keyframes side-fast {
+  0%, 100% { transform: translateX(15px); }
+  50% { transform: translateX(-15px); }
+}
+
+.animate-mist-slow {
+  animation: side-slow 30s ease-in-out infinite;
+}
+
+.animate-mist-fast {
+  animation: side-fast 20s ease-in-out infinite;
+}
+
+.forest-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 50%, rgba(12, 8, 5, 0.1) 0%, rgba(12, 8, 5, 0.5) 60%, rgba(4, 5, 4, 0.92) 100%);
+  z-index: 5;
+}
+
+/* ---------- tldraw medieval custom overrides ---------- */
+.tl-container {
+  background: transparent !important;
+  --color-background: transparent !important;
+  --color-panel: rgba(246, 236, 213, 0.95) !important; /* warm papyrus */
+  --color-selected: #7a1f12 !important; /* medieval crimson selection */
+  --color-accent: #7a1f12 !important;
+  --color-text: #000000 !important; /* black ink */
+  --color-primary: #7a1f12 !important;
+  --color-muted: rgba(90, 55, 20, 0.4) !important;
+  --color-input: #f5eedc !important;
+  --color-divider: rgba(122, 90, 46, 0.25) !important;
+  font-family: "Cinzel", "Inter", sans-serif !important;
+  --tl-text-outline: none !important;
+  --tl-text-outline-reference: none !important;
+  --tl-text-outline-a: 0px !important;
+  --tl-text-outline-b: 0px !important;
+}
+
+/* Hide background grid, canvas borders, page container cards, and canvas backgrounds */
+.tl-container,
+.tl-main,
+.tl-layer,
+.tl-layers,
+.tl-canvas,
+.tl-background,
+.tl-canvas-container,
+.tl-canvas-background,
+.tl-background__provider {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Hide tldraw infinite board grid pattern lines */
+.tl-grid {
+  display: none !important;
+}
+
+/* Style style panels, popovers and toolbars to match the parchment scroll aesthetic */
+.tl-toolbar, .tl-style-panel__wrapper, .tl-popover, .tl-menu__group, .tl-dropdown-menu__content {
+  background-color: #fcf4e2 !important;
+  border: 1px solid rgba(122, 90, 46, 0.4) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(90, 55, 20, 0.15) !important;
+}
+
+/* Medieval look for tool buttons */
+.tl-button {
+  color: #5c4326 !important;
+  border-radius: 4px !important;
+}
+
+.tl-button:hover {
+  background-color: rgba(122, 90, 46, 0.12) !important;
+  color: #3a2a18 !important;
+}
+
+.tl-button[data-state="selected"] {
+  background-color: #7a1f12 !important;
+  color: #fff9ed !important;
+}
+
+/* Custom indicator color */
+.tl-indicator {
+  stroke: #7a1f12 !important;
+}
+
+/* Universal, bulletproof scrollbar hiding to prevent standard browser scrollbars leaking on any containers */
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Hide Tldraw watermark and brand buttons */
+.tl-watermark,
+.tl-brand,
+.tl-embed-disclaimer,
+[data-testid="watermark"],
+[class*="tl-watermark"],
+[class*="tl-brand"] {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Tool specific cursors, with high specificity overriding standard/canvas cursors */
+.tool-draw,
+.tool-draw #rig,
+.tool-draw #sheet,
+.tool-draw .tl-container,
+.tool-draw .tl-canvas {
+  cursor: var(--quill-cursor) !important;
+}
+
+.tool-eraser,
+.tool-eraser #rig,
+.tool-eraser #sheet,
+.tool-eraser .tl-container,
+.tool-eraser .tl-canvas {
+  cursor: var(--eraser-cursor) !important;
+}
+
+.tool-select,
+.tool-select #rig,
+.tool-select #sheet,
+.tool-select .tl-container,
+.tool-select .tl-canvas {
+  cursor: var(--select-cursor) !important;
+}
+
+.tool-hand,
+.tool-hand #rig,
+.tool-hand #sheet,
+.tool-hand .tl-container,
+.tool-hand .tl-canvas {
+  cursor: grab !important;
+}
+
+.tool-hand:active,
+.tool-hand #rig:active,
+.tool-hand #sheet:active,
+.tool-hand .tl-container:active,
+.tool-hand .tl-canvas:active {
+  cursor: grabbing !important;
+}
+
+
+
+

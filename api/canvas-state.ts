@@ -18,7 +18,7 @@ const getKvClient = () => {
   if (url && token) {
     return createClient({ url, token });
   }
-  return null;
+  throw new Error("Vercel KV credentials missing");
 };
 
 export default async function handler(req: any, res: any) {
@@ -41,17 +41,15 @@ export default async function handler(req: any, res: any) {
   if (req.method === "GET") {
     // Return connection diagnostics if requested
     if (req.query.status === "true") {
-      const client = getKvClient();
       let pingSuccess = false;
       let pingError = null;
-      if (client) {
-        try {
-          await client.set("communal-canvas-ping", "ok");
-          const val = await client.get("communal-canvas-ping");
-          pingSuccess = val === "ok";
-        } catch (err: any) {
-          pingError = err.message || String(err);
-        }
+      try {
+        const client = getKvClient();
+        await client.set("communal-canvas-ping", "ok");
+        const val = await client.get("communal-canvas-ping");
+        pingSuccess = val === "ok";
+      } catch (err: any) {
+        pingError = err.message || String(err);
       }
       return res.status(200).json({
         isKvConfigured,
@@ -66,15 +64,8 @@ export default async function handler(req: any, res: any) {
 
     try {
       const client = getKvClient();
-      if (client) {
-        const state = await client.get("canvas-state");
-        return res.status(200).json(state || { status: "empty" });
-      } else {
-        return res.status(200).json({
-          status: "empty",
-          error: "Vercel KV is not configured on this Vercel deployment.",
-        });
-      }
+      const state = await client.get("canvas-state");
+      return res.status(200).json(state || { status: "empty" });
     } catch (error: any) {
       console.error("Vercel KV Get Error:", error);
       return res.status(500).json({ error: error.message || "Failed to load canvas state" });
@@ -84,14 +75,8 @@ export default async function handler(req: any, res: any) {
   if (req.method === "POST") {
     try {
       const client = getKvClient();
-      if (client) {
-        await client.set("canvas-state", req.body);
-        return res.status(200).json({ success: true, database: "vercel-kv" });
-      } else {
-        return res.status(200).json({
-          error: "Vercel KV is not configured on this Vercel deployment.",
-        });
-      }
+      await client.set("canvas-state", req.body);
+      return res.status(200).json({ success: true, database: "vercel-kv" });
     } catch (error: any) {
       console.error("Vercel KV Set Error:", error);
       return res.status(500).json({ error: error.message || "Failed to save canvas state" });

@@ -9,8 +9,14 @@ interface WritingCanvasProps {
 
 function EditorRefSetter({ onEditorReady }: { onEditorReady: (editor: any) => void }) {
   const editor = useEditor();
+  const lastRegisteredEditorRef = React.useRef<any>(null);
+
   useEffect(() => {
-    if (editor && onEditorReady) {
+    if (editor && editor !== lastRegisteredEditorRef.current) {
+      lastRegisteredEditorRef.current = editor;
+      if (typeof window !== "undefined") {
+        (window as any).tldrawEditor = editor;
+      }
       onEditorReady(editor);
     }
   }, [editor, onEditorReady]);
@@ -57,7 +63,10 @@ function CommunalSync() {
     const loadState = async () => {
       try {
         const response = await fetch("/api/canvas-state");
-        if (!response.ok) return;
+        if (!response.ok) {
+          console.warn(`%c📜 [Scribe Sync] Load request failed with status ${response.status}`, "color: #f59e0b;");
+          return;
+        }
         const data = await response.json();
         const extracted = getStoreAndSchema(data);
         if (extracted && extracted.store && extracted.schema) {
@@ -144,13 +153,17 @@ function CommunalSync() {
           schema: schema,
         };
 
-        await fetch("/api/canvas-state", {
+        const response = await fetch("/api/canvas-state", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(filteredSnapshot),
         });
+
+        if (!response.ok) {
+          console.error(`%c📜 [Scribe Sync] Failed to save state. Server responded with HTTP status ${response.status}`, "color: #f87171;");
+        }
       } catch (err) {
         console.error("Error saving communal canvas state:", err);
       }

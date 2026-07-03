@@ -3,7 +3,6 @@ dotenv.config();
 
 import express from "express";
 import path from "path";
-import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "@vercel/kv";
 
@@ -15,7 +14,7 @@ const getKvClient = () => {
   if (url && token) {
     return createClient({ url, token });
   }
-  return null;
+  throw new Error("Vercel KV credentials missing");
 };
 
 async function startServer() {
@@ -28,45 +27,28 @@ async function startServer() {
   if (isKvConfigured) {
     console.log("[Server] Vercel KV configuration detected! Using Vercel KV as primary database.");
   } else {
-    console.log("[Server] Vercel KV not configured. Falling back to local disk state.");
+    console.warn("[Server] WARNING: Vercel KV not configured. Canvas state will not be persisted.");
   }
 
   // Use a large JSON body size limit since tldraw snapshots can contain many shapes
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  const STATE_FILE = path.join(process.cwd(), "canvas-state.json");
-  let canvasState: any = null;
-
-  // Load the initial canvas state from disk on startup if not using KV
-  if (!isKvConfigured) {
-    try {
-      if (fs.existsSync(STATE_FILE)) {
-        const fileContent = fs.readFileSync(STATE_FILE, "utf-8");
-        canvasState = JSON.parse(fileContent);
-        console.log("[Server] Loaded existing communal canvas state from disk");
-      }
-    } catch (error) {
-      console.error("[Server] Error loading canvas-state.json:", error);
-    }
-  }
-
   // API to fetch the shared communal canvas state or diagnostics
   app.get("/api/canvas-state", async (req, res) => {
     // Return connection diagnostics if requested
     if (req.query.status === "true") {
-      const client = getKvClient();
       let pingSuccess = false;
       let pingError = null;
-      if (client) {
-        try {
-          await client.set("communal-canvas-ping", "ok");
-          const val = await client.get("communal-canvas-ping");
-          pingSuccess = val === "ok";
-        } catch (err: any) {
-          pingError = err.message || String(err);
-        }
+      try {
+        const client = getKvClient();
+        await client.set("communal-canvas-ping", "ok");
+        const val = await client.get("communal-canvas-ping");
+        pingSuccess = val === "ok";
+      } catch (err: any) {
+        pingError = err.message || String(err);
       }
+      
       return res.json({
         isKvConfigured,
         hasUrl: !!process.env.KV_REST_API_URL,
@@ -80,16 +62,11 @@ async function startServer() {
 
     try {
       const client = getKvClient();
-      if (client) {
-        const state = await client.get("canvas-state");
-        res.json(state || { status: "empty" });
-      } else {
-        res.json(canvasState || { status: "empty" });
-      }
+      const state = await client.get("canvas-state");
+      res.json(state || { status: "empty" });
     } catch (error) {
       console.error("[Server] Error getting canvas state from Vercel KV:", error);
-      // Fallback to in-memory/disk if KV fails in runtime
-      res.json(canvasState || { status: "empty" });
+      res.status(500).json({ error: "Failed to read canvas state from KV" });
     }
   });
 
@@ -97,14 +74,8 @@ async function startServer() {
   app.post("/api/canvas-state", async (req, res) => {
     try {
       const client = getKvClient();
-      if (client) {
-        await client.set("canvas-state", req.body);
-        res.json({ success: true, database: "vercel-kv" });
-      } else {
-        canvasState = req.body;
-        fs.writeFileSync(STATE_FILE, JSON.stringify(canvasState, null, 2), "utf-8");
-        res.json({ success: true, database: "local-file" });
-      }
+      await client.set("canvas-state", req.body);
+      res.json({ success: true, database: "vercel-kv" });
     } catch (error) {
       console.error("[Server] Error saving canvas state:", error);
       res.status(500).json({ error: "Failed to persist canvas state" });

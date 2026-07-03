@@ -45,9 +45,11 @@ export default async function handler(req: any, res: any) {
       let pingError = null;
       try {
         const client = getKvClient();
-        await client.set("communal-canvas-ping", "ok");
-        const val = await client.get("communal-canvas-ping");
-        pingSuccess = val === "ok";
+        if (client) {
+          await client.set("communal-canvas-ping", "ok");
+          const val = await client.get("communal-canvas-ping");
+          pingSuccess = val === "ok";
+        }
       } catch (err: any) {
         pingError = err.message || String(err);
       }
@@ -71,7 +73,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(state || { status: "empty" });
     } catch (error: any) {
       console.error("Vercel KV Get Error:", error);
-      return res.status(500).json({ error: error.message || "Failed to load canvas state" });
+      return res.status(200).json({ status: "empty", error: error.message });
     }
   }
 
@@ -85,7 +87,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ success: true, database: "vercel-kv" });
     } catch (error: any) {
       console.error("Vercel KV Set Error:", error);
-      return res.status(500).json({ error: error.message || "Failed to save canvas state" });
+      return res.status(200).json({ success: false, error: error.message });
     }
   }
 

@@ -42,9 +42,11 @@ async function startServer() {
       let pingError = null;
       try {
         const client = getKvClient();
-        await client.set("communal-canvas-ping", "ok");
-        const val = await client.get("communal-canvas-ping");
-        pingSuccess = val === "ok";
+        if (client) {
+          await client.set("communal-canvas-ping", "ok");
+          const val = await client.get("communal-canvas-ping");
+          pingSuccess = val === "ok";
+        }
       } catch (err: any) {
         pingError = err.message || String(err);
       }
@@ -67,9 +69,9 @@ async function startServer() {
       }
       const state = await client.get("canvas-state");
       res.json(state || { status: "empty" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("[Server] Error getting canvas state from Vercel KV:", error);
-      res.status(500).json({ error: "Failed to read canvas state from KV" });
+      res.json({ status: "empty", error: error.message });
     }
   });
 
@@ -82,9 +84,9 @@ async function startServer() {
       }
       await client.set("canvas-state", req.body);
       res.json({ success: true, database: "vercel-kv" });
-    } catch (error) {
+    } catch (error: any) {
       console.error("[Server] Error saving canvas state:", error);
-      res.status(500).json({ error: "Failed to persist canvas state" });
+      res.json({ success: false, error: error.message });
     }
   });
 

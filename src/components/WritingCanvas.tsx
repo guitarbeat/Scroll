@@ -154,7 +154,6 @@ function GhostCursors({
 
 interface WritingCanvasProps {
   onEditorReady: (editor: any) => void;
-  isMagnifierActive?: boolean;
 }
 
 function EditorRefSetter({ onEditorReady }: { onEditorReady: (editor: any) => void }) {
@@ -576,8 +575,7 @@ function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
       const outer = outerRef.current;
       const host = hostRef.current;
       if (outer && host) {
-        if (st.active) {
-          const container = outer.parentElement as HTMLElement | null;
+        if (st.active) {          const container = outer.parentElement as HTMLElement | null;
           const cw = container?.clientWidth ?? 0;
           const ch = container?.clientHeight ?? 0;
           outer.style.display = "block";
@@ -644,7 +642,7 @@ function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
 // ---------------------------------------------------------------------------
 // WritingCanvas — main export
 // ---------------------------------------------------------------------------
-export default function WritingCanvas({ onEditorReady, isMagnifierActive = false }: WritingCanvasProps) {
+export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [editor, setEditor] = React.useState<any>(null);
   const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});

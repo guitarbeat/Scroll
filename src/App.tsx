@@ -52,14 +52,18 @@ export default function App() {
   const [showScrollPrompt, setShowScrollPrompt] = useState(false);
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
-  const [isMagnifierActive, setIsMagnifierActive] = useState(false);
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
   const getTargetViewport = () => {
     if (typeof window === "undefined") return 720;
-    return Math.max(300, Math.min(window.innerHeight * 0.6, 1100));
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // On mobile (narrow screens) use up to 80% of viewport height so the
+    // scroll actually fills the phone screen. On desktop cap at 1100px.
+    const pct = vw < 600 ? 0.82 : 0.65;
+    return Math.max(320, Math.min(Math.round(vh * pct), 1100));
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -108,18 +112,28 @@ export default function App() {
     setMotes(list);
   }, []);
 
-  // Synchronous and responsive scale tracking so the scroll has exactly the same size on all screens
+  // Scale the whole rig so the 850px design fits the viewport.
+  // The CSS --rig-width already makes the rig responsive for width,
+  // so we only apply a JS scale when the screen is so narrow that even
+  // the CSS-shrunk rig would overflow (i.e. viewport < the rig's natural
+  // rendered width at scale 1). In practice on phones the CSS handles it,
+  // so scale stays 1 and only kicks in below ~380px edge cases.
   useEffect(() => {
     const handleResize = () => {
-      // Scale the whole rig so the 850px design fits the viewport.
-      // We give 8px breathing room on each side (16px total) so the
-      // roller handles never clip the screen edge.
-      const designWidth = 850;
-      const scale = Math.min(1, (window.innerWidth - 16) / designWidth);
+      const vw = window.innerWidth;
+      // At 480px the CSS rig-width is calc(100% - 5.5rem) = 480-88 = 392px.
+      // The rig max-width is 850px. Scale is only needed when the rig's
+      // natural size exceeds what CSS already shrinks it to. Since CSS
+      // handles the responsive width, we only scale if the whole thing
+      // (including the handle arms that extend outside --rig-width)
+      // would clip the screen. Handle arms add ~88px on each side at
+      // base-size 0.5rem (480px breakpoint). So effective full width is
+      // rig-width + 2 * handle-arm ~= rig-width + 60px at small sizes.
+      // Below 380px even handle shrinking may not be enough.
+      const scale = vw < 380 ? Math.max(0.5, vw / 380) : 1;
       setRigScale(scale);
     };
-
-    handleResize(); // run immediately
+    handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -804,7 +818,6 @@ export default function App() {
             >
               <WritingCanvas 
                 onEditorReady={setEditor} 
-                isMagnifierActive={isMagnifierActive}
               />
             </div>
           </div>
@@ -838,8 +851,6 @@ export default function App() {
       {editor && isOpened && (
         <MedievalToolbar 
           editor={editor} 
-          isMagnifierActive={isMagnifierActive}
-          setIsMagnifierActive={setIsMagnifierActive}
         />
       )}
 

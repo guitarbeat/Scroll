@@ -898,7 +898,21 @@ body {
 .tl-embed-disclaimer,
 [data-testid="watermark"],
 [class*="tl-watermark"],
-[class*="tl-brand"] {
+[class*="tl-brand"],
+.tl-menu-zone,
+.tl-menu-zone__children,
+[data-testid="main-menu.button"],
+[class*="tlui-menu"],
+[class*="tlui-navigation"],
+[class*="tlui-toolbar"],
+[class*="tlui-style"],
+[class*="tlui-helper"],
+.tlui-menu-zone,
+.tlui-navigation-zone,
+.tlui-toolbar,
+.tlui-style-panel,
+.tlui-debug-panel,
+.tlui-helper-buttons {
   display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;

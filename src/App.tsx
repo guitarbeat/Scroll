@@ -56,22 +56,19 @@ export default function App() {
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
-  // ── Fixed aspect ratio: iPhone 16 Pro scroll viewport ──────────────────
-  // The scroll parchment is always 9:18 (≈ iPhone 16 Pro usable drawing area).
-  // We derive both the rig scale AND the viewport height from the actual rig
-  // render width, so every screen gets the same proportions.
-  // Design width = 850px (max-width of #rig in CSS).
-  const SCROLL_ASPECT = 9 / 18; // width / height — tall narrow scroll
+  // ── Scroll proportions: height driven by viewport, not a fixed ratio ──────
+  // Strategy: fill as much of the viewport height as possible while keeping
+  // the scroll centred. The CSS --rig-width already handles responsive width,
+  // so we just need a stable height target and a safety-net scale.
+  const SCROLL_ASPECT = 9 / 18; // width / height (used only as a minimum shape)
 
   const getTargetViewport = () => {
-    if (typeof window === "undefined") return 540;
-    // The actual rendered rig width after CSS --rig-width and max-width cap:
-    const renderedRigWidth = Math.min(
-      window.innerWidth - (window.innerWidth < 480 ? 88 : window.innerWidth < 768 ? 128 : 176),
-      850
-    );
-    // Height = width / aspect ratio, clamped to sensible bounds.
-    return Math.max(320, Math.min(Math.round(renderedRigWidth / SCROLL_ASPECT), 1200));
+    if (typeof window === "undefined") return 600;
+    const rem  = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+    // Use 92% of viewport height minus the two rollers.
+    const available = Math.floor(window.innerHeight * 0.92) - rollerH * 2;
+    return Math.max(300, Math.min(available, 1400));
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -120,25 +117,23 @@ export default function App() {
     setMotes(list);
   }, []);
 
-  // Scale the rig so it fits the viewport both horizontally and vertically.
-  // The scroll has a fixed 9:18 aspect ratio, so on very short/wide screens
-  // (landscape phone, small desktop) we may also need to scale down for height.
+  // rigScale: safety-net only. CSS handles width; we only scale if the total
+  // rig height (parchment + rollers) would physically clip the viewport.
   useEffect(() => {
     const handleResize = () => {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      // Rig design size: 850px wide, plus ~120px for rollers top/bottom.
-      const rigDesignW = 850;
-      const rigDesignH = Math.round(850 / (9 / 18)) + 120; // parchment + rollers
-      const scaleW = vw / rigDesignW;
-      const scaleH = vh / rigDesignH;
-      // Only scale DOWN, never UP. Never below 0.45 (still usable).
-      const scale = Math.max(0.45, Math.min(1, scaleW, scaleH));
+      const vh  = window.innerHeight;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+      const target  = getTargetViewport();
+      const totalH  = target + rollerH * 2;
+      // Never scale up; only pull down when it would overflow vertically.
+      const scale = totalH > vh ? Math.max(0.5, vh / totalH) : 1;
       setRigScale(scale);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update roller background scroll offset for dynamic rotation
@@ -228,9 +223,8 @@ export default function App() {
       });
 
       const targetViewport = getTargetViewport();
-      // Maintain a dynamic minimum height matching the fixed aspect-ratio
-      // viewport, expanding only if shapes extend beyond it (up to 5400px).
-      const padding = 200;
+      // Minimum height = the full viewport-derived target; expand if shapes go beyond it.
+      const padding = 120;
       const calculatedHeight = Math.max(targetViewport, Math.min(maxY + padding, 5400));
       setDynamicSheetHeight(calculatedHeight);
     };

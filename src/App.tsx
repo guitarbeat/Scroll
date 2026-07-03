@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import ForestBackground from "./components/ForestBackground";
 import WritingCanvas from "./components/WritingCanvas";
 import MedievalToolbar from "./components/MedievalToolbar";
@@ -858,6 +859,7 @@ export default function App() {
           </filter>
         </defs>
       </svg>
+      <Analytics />
     </div>
   );
 }

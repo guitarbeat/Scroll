@@ -56,6 +56,11 @@ export default function App() {
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
+  const getTargetViewport = () => {
+    if (typeof window === "undefined") return 720;
+    return Math.max(300, Math.min(window.innerHeight * 0.6, 1100));
+  };
+
   const triggerThud = (type: "top" | "bottom" | "both") => {
     if (type === "top" || type === "both") {
       setShakeTop(true);
@@ -204,7 +209,7 @@ export default function App() {
         }
       });
 
-      const targetViewport = 720;
+      const targetViewport = getTargetViewport();
       // Maintain a dynamic minimum height matching the scroll viewport, expanding as needed up to 5400px
       const padding = 450;
       const calculatedHeight = Math.max(targetViewport, Math.min(maxY + padding, 5400));
@@ -237,8 +242,7 @@ export default function App() {
     if (!isOpened || isUnrolling) return;
 
     const handleResize = () => {
-      const target = 720;
-      setSheetMaxHeight(`${target}px`);
+      setSheetMaxHeight(`${getTargetViewport()}px`);
     };
 
     window.addEventListener("resize", handleResize);
@@ -257,7 +261,7 @@ export default function App() {
       sheetWrapRef.current.scrollTop = 0;
     }
 
-    const target = 720;
+    const target = getTargetViewport();
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -552,18 +556,6 @@ export default function App() {
     };
   }, [isOpened, sealCracked]);
 
-  // Dynamically update scroll height on window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (isOpened && !isUnrolling) {
-        const target = Math.max(500, Math.min(window.innerHeight * 0.76, 1100));
-        setSheetMaxHeight(`${target}px`);
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [isOpened, isUnrolling]);
-
   // Window-level wheel capture to scroll the parchment from anywhere
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -799,7 +791,7 @@ export default function App() {
 
             {/* Interactive Writing Canvas covering the whole sheet, perfectly bounded within the parchment margins and between headers/footers */}
             <div 
-              className="absolute top-[40px] bottom-[140px] z-10 pointer-events-auto touch-none select-none"
+              className="absolute top-[40px] bottom-[140px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
               style={{
                 left: "var(--sheet-padding-x)",
                 right: "var(--sheet-padding-x)"

@@ -61,14 +61,31 @@ function CommunalSync() {
 
     // Load initial state from shared persistent backend
     const loadState = async () => {
+      let data: any = null;
       try {
         const response = await fetch("/api/canvas-state");
-        if (!response.ok) {
+        if (response.ok) {
+          data = await response.json();
+        } else {
           console.warn(`%c📜 [Scribe Sync] Load request failed with status ${response.status}`, "color: #f59e0b;");
-          return;
         }
-        const data = await response.json();
-        const extracted = getStoreAndSchema(data);
+      } catch (err) {
+        console.warn("Error fetching communal canvas state, falling back to local:", err);
+      }
+
+      try {
+        let extracted = getStoreAndSchema(data);
+
+        // Fallback to localStorage if Vercel KV returned empty (database not configured, fetch failed, etc)
+        if (!extracted || !extracted.store) {
+          try {
+             const localData = localStorage.getItem("canvas-state");
+             if (localData) {
+               extracted = getStoreAndSchema(JSON.parse(localData));
+             }
+          } catch (e) {}
+        }
+
         if (extracted && extracted.store && extracted.schema) {
           isUpdatingFromServerRef.current = true;
 
@@ -116,12 +133,13 @@ function CommunalSync() {
 
           isUpdatingFromServerRef.current = false;
         }
-
-        // Mark initial load as completed successfully so we can begin saving user edits
-        isInitialLoadCompleteRef.current = true;
       } catch (err) {
-        console.error("Error loading communal canvas state:", err);
+        console.error("Error applying loaded canvas state:", err);
+        isUpdatingFromServerRef.current = false;
       }
+      
+      // Mark initial load as completed successfully so we can begin saving user edits
+      isInitialLoadCompleteRef.current = true;
     };
 
     loadState();
@@ -152,6 +170,12 @@ function CommunalSync() {
           store: filteredStore,
           schema: schema,
         };
+
+        try {
+          localStorage.setItem("canvas-state", JSON.stringify(filteredSnapshot));
+        } catch (e) {
+          // ignore quota exceeded or other localStorage errors
+        }
 
         const response = await fetch("/api/canvas-state", {
           method: "POST",
@@ -236,11 +260,28 @@ function CommunalSync() {
         return;
       }
       
+      let data: any = null;
       try {
         const response = await fetch("/api/canvas-state");
-        if (!response.ok) return;
-        const data = await response.json();
-        const extracted = getStoreAndSchema(data);
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (err) {
+        // Silently ignore fetch errors during background polling
+      }
+
+      try {
+        let extracted = getStoreAndSchema(data);
+
+        if (!extracted || !extracted.store) {
+          try {
+             const localData = localStorage.getItem("canvas-state");
+             if (localData) {
+               extracted = getStoreAndSchema(JSON.parse(localData));
+             }
+          } catch (e) {}
+        }
+
         if (extracted && extracted.store && extracted.schema) {
           const currentSnapshot = getSnapshot(editor.store) as any;
           const currentExtracted = getStoreAndSchema(currentSnapshot);
@@ -315,6 +356,7 @@ function CommunalSync() {
         }
       } catch (err) {
         // Fail silently during background polling
+        isUpdatingFromServerRef.current = false;
       }
     }, 5000);
 

@@ -56,11 +56,7 @@ export default function App() {
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
-  // ── Scroll proportions: height driven by viewport, not a fixed ratio ──────
-  // Strategy: fill as much of the viewport height as possible while keeping
-  // the scroll centred. The CSS --rig-width already handles responsive width,
-  // so we just need a stable height target and a safety-net scale.
-  const SCROLL_ASPECT = 9 / 18; // width / height (used only as a minimum shape)
+  // ── Scroll proportions: height driven by viewport ───────────────────────
 
   const getTargetViewport = () => {
     if (typeof window === "undefined") return 600;

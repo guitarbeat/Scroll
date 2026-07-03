@@ -189,7 +189,6 @@ function CommunalSync({
   const knownShapeIdsRef      = React.useRef<Set<string>>(new Set());
   const lastSentRef           = React.useRef<Record<string, string>>({});
   const isTouchDeviceRef      = React.useRef(false);
-  const lastCursorPageRef     = React.useRef<{ x: number; y: number } | null>(null);
   const cursorThrottleRef     = React.useRef(0);
 
   useEffect(() => {
@@ -422,7 +421,6 @@ function CommunalSync({
       try { (editor as any).updateViewportScreenBounds?.(); } catch (_) {}
 
       const pt = screenToPage(editor, e.clientX, e.clientY);
-      lastCursorPageRef.current = pt;
 
       const now = Date.now();
       if (now - cursorThrottleRef.current < 50) return;
@@ -449,9 +447,16 @@ function CommunalSync({
     // Re-enter presence (desktop only) after any presence gap.
     const reenterPresence = () => {
       if (isTouchDeviceRef.current) return;
+      // Use update if already present, enter if not — safe to call either way
+      // since Ably deduplicates by clientId within a connection.
       cursorsChannel.presence
-        .enter({ pageX: 0, pageY: 0, color: SESSION_COLOR.hex, tool: "draw", ts: Date.now() })
-        .catch(() => {});
+        .update({ pageX: 0, pageY: 0, color: SESSION_COLOR.hex, tool: "draw", ts: Date.now() })
+        .catch(() => {
+          // Not yet entered — enter fresh
+          cursorsChannel.presence
+            .enter({ pageX: 0, pageY: 0, color: SESSION_COLOR.hex, tool: "draw", ts: Date.now() })
+            .catch(() => {});
+        });
     };
 
     // When Ably reconnects after a drop, reconcile with Redis (to catch any
@@ -779,7 +784,7 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
             // Map the tap to page space and create a text shape.
             const pagePoint = screenToPage(editor, t.clientX, t.clientY);
             const id = createShapeId();
-            editor.batch(() => {
+            editor.run(() => {
               editor.setCurrentTool("draw"); // ensure we're not stuck in text
               editor.createShape({
                 id,
@@ -867,7 +872,7 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
       try {
         const pagePoint = screenToPage(editor, e.clientX, e.clientY);
         const id = createShapeId();
-        editor.batch(() => {
+        editor.run(() => {
           editor.createShape({
             id,
             type: "text",

@@ -27,338 +27,195 @@ function CommunalSync() {
   const editor = useEditor();
   const isInitialLoadCompleteRef = React.useRef(false);
   const isUpdatingFromServerRef = React.useRef(false);
-  const lastLocalChangeTimeRef = React.useRef<number>(0);
+
+  // Track which shape IDs we've sent so we can detect deletions.
+  const knownShapeIdsRef = React.useRef<Set<string>>(new Set());
+  // Track the last-seen serialized value per shape ID so we only send diffs.
+  const lastSentRef = React.useRef<Record<string, string>>({});
 
   useEffect(() => {
-    // Helper to identify document-level records (shapes, assets, pages, and the root document)
-    const isDocumentRecord = (r: any) => {
-      return (
-        r &&
-        (r.typeName === "shape" ||
-          r.typeName === "asset" ||
-          r.typeName === "page" ||
-          r.typeName === "document")
-      );
-    };
+    const isShapeRecord = (r: any) =>
+      r && (r.typeName === "shape" || r.typeName === "asset");
 
-    // Helper to safely extract store and schema from diverse tldraw snapshot formats
-    const getStoreAndSchema = (snap: any) => {
-      if (!snap) return null;
-      if (snap.document && snap.document.store) {
-        return {
-          store: snap.document.store,
-          schema: snap.document.schema || snap.schema,
-        };
-      }
-      if (snap.store) {
-        return {
-          store: snap.store,
-          schema: snap.schema,
-        };
-      }
-      return null;
-    };
-
-    // Load initial state from shared persistent backend
+    // ── Initial load ────────────────────────────────────────────────────────
     const loadState = async () => {
-      let data: any = null;
       try {
         const response = await fetch("/api/sync-state");
-        if (response.ok) {
-          data = await response.json();
-        } else {
-          console.warn("[WritingCanvas] Load request failed with status " + response.status);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.status === "empty" || !data.shapes) return;
+
+        const { shapes, deleted } = data as {
+          shapes: Record<string, any>;
+          deleted: string[];
+        };
+
+        isUpdatingFromServerRef.current = true;
+
+        // Apply all remote shapes that differ from local
+        const toPut = Object.values(shapes).filter((r) => isShapeRecord(r));
+        if (toPut.length > 0) editor.store.put(toPut);
+
+        // Remove any shapes the server says were deleted
+        const toRemove = (deleted || []).filter((id) => {
+          const r = editor.store.get(id as any);
+          return r && isShapeRecord(r);
+        });
+        if (toRemove.length > 0) editor.store.remove(toRemove as any[]);
+
+        // Seed our tracking maps from what's now in the store
+        const snapshot = getSnapshot(editor.store) as any;
+        const store = snapshot?.document?.store || snapshot?.store || {};
+        for (const [id, record] of Object.entries(store)) {
+          if (isShapeRecord(record)) {
+            knownShapeIdsRef.current.add(id);
+            lastSentRef.current[id] = JSON.stringify(record);
+          }
         }
-      } catch (err) {
-        console.warn("Error fetching communal canvas state, falling back to local:", err);
-      }
 
-      try {
-        let extracted = getStoreAndSchema(data);
-
-        // Fallback to localStorage if Vercel KV returned empty (database not configured, fetch failed, etc)
-        if (!extracted || !extracted.store) {
-          try {
-             const localData = localStorage.getItem("canvas-state");
-             if (localData) {
-               extracted = getStoreAndSchema(JSON.parse(localData));
-             }
-          } catch (e) {}
-        }
-
-        if (extracted && extracted.store && extracted.schema) {
-          isUpdatingFromServerRef.current = true;
-
-          const currentSnapshot = getSnapshot(editor.store) as any;
-          const currentExtracted = getStoreAndSchema(currentSnapshot);
-          const currentStore = currentExtracted ? currentExtracted.store : {};
-
-          const localDocs: any = {};
-          for (const [id, record] of Object.entries(currentStore || {})) {
-            if (isDocumentRecord(record)) {
-              localDocs[id] = record;
-            }
-          }
-
-          const remoteDocs: any = {};
-          for (const [id, record] of Object.entries(extracted.store || {})) {
-            if (isDocumentRecord(record)) {
-              remoteDocs[id] = record;
-            }
-          }
-
-          const toPut: any[] = [];
-          const toRemove: any[] = [];
-
-          for (const [id, rr] of Object.entries(remoteDocs)) {
-            const lr = localDocs[id];
-            if (!lr || JSON.stringify(lr) !== JSON.stringify(rr)) {
-              toPut.push(rr);
-            }
-          }
-
-          for (const [id, lr] of Object.entries(localDocs)) {
-            const lrd = lr as any;
-            if (lrd.typeName !== "page" && lrd.typeName !== "document" && !remoteDocs[id]) {
-              toRemove.push(id);
-            }
-          }
-
-          if (toPut.length > 0 || toRemove.length > 0) {
-            editor.store.put(toPut);
-            if (toRemove.length > 0) {
-              editor.store.remove(toRemove);
-            }
-          }
-
-          isUpdatingFromServerRef.current = false;
-        }
-      } catch (err) {
-        console.error("Error applying loaded canvas state:", err);
         isUpdatingFromServerRef.current = false;
+      } catch (err) {
+        console.error("[CommunalSync] loadState error:", err);
+        isUpdatingFromServerRef.current = false;
+      } finally {
+        isInitialLoadCompleteRef.current = true;
       }
-      
-      // Mark initial load as completed successfully so we can begin saving user edits
-      isInitialLoadCompleteRef.current = true;
     };
 
     loadState();
 
-    // Debounced save to shared persistent backend
+    // ── Save: only the diff ─────────────────────────────────────────────────
+    // Collects changed/added/removed shapes since the last save and sends only
+    // those keys. Other users' shapes in Redis are never touched.
     let saveTimeout: any = null;
 
     const saveState = async () => {
       try {
         const snapshot = getSnapshot(editor.store) as any;
-        const extracted = getStoreAndSchema(snapshot);
-        const storeToFilter = extracted ? extracted.store : null;
-        const schema = extracted ? extracted.schema : null;
+        const store = snapshot?.document?.store || snapshot?.store || {};
+        const schema = snapshot?.document?.schema || snapshot?.schema;
 
-        if (!storeToFilter) {
-          console.warn("[WritingCanvas] No store found in snapshot to save.");
-          return;
-        }
+        const upserted: Record<string, any> = {};
+        const deleted: string[] = [];
 
-        const filteredStore: any = {};
-        for (const [id, record] of Object.entries(storeToFilter)) {
-          if (isDocumentRecord(record)) {
-            filteredStore[id] = record;
+        // Find added / changed shapes
+        for (const [id, record] of Object.entries(store)) {
+          if (!isShapeRecord(record)) continue;
+          const serialized = JSON.stringify(record);
+          if (lastSentRef.current[id] !== serialized) {
+            upserted[id] = record;
+            lastSentRef.current[id] = serialized;
+            knownShapeIdsRef.current.add(id);
           }
         }
 
-        const filteredSnapshot = {
-          store: filteredStore,
-          schema: schema,
-        };
-
-        try {
-          localStorage.setItem("canvas-state", JSON.stringify(filteredSnapshot));
-        } catch (e) {
-          // ignore quota exceeded or other localStorage errors
+        // Find deleted shapes (were known, now gone)
+        for (const id of knownShapeIdsRef.current) {
+          if (!store[id]) {
+            deleted.push(id);
+            knownShapeIdsRef.current.delete(id);
+            delete lastSentRef.current[id];
+          }
         }
 
-        const response = await fetch("/api/sync-state", {
+        if (Object.keys(upserted).length === 0 && deleted.length === 0) return;
+
+        await fetch("/api/sync-state", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(filteredSnapshot),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schema, upserted, deleted }),
         });
-
-        if (!response.ok) {
-          console.error("[WritingCanvas] Failed to save state. Server responded with HTTP status " + response.status);
-        }
       } catch (err) {
-        console.error("Error saving communal canvas state:", err);
+        console.error("[CommunalSync] saveState error:", err);
       }
     };
 
+    // Listen for any local store changes and debounce the save
     const unsubscribe = editor.store.listen((entry) => {
       if (isUpdatingFromServerRef.current) return;
-      if (!isInitialLoadCompleteRef.current) return; // Prevent overwriting state before it is finished loading
-      
-      // Check if there are any actual document-level record changes (shapes, pages, etc.)
-      let hasDocChanges = false;
+      if (!isInitialLoadCompleteRef.current) return;
+
+      const changes = entry.changes;
+      let hasShapeChange = false;
       try {
-        const changes = entry.changes;
-        if (changes) {
-          if (changes.added) {
-            for (const r of Object.values(changes.added)) {
-              if (isDocumentRecord(r)) {
-                hasDocChanges = true;
-                break;
-              }
-            }
-          }
-          if (!hasDocChanges && changes.updated) {
-            for (const update of Object.values(changes.updated) as any[]) {
-              if (Array.isArray(update)) {
-                const [from, to] = update;
-                if (isDocumentRecord(from) || isDocumentRecord(to)) {
-                  hasDocChanges = true;
-                  break;
-                }
-              } else if (update && typeof update === "object") {
-                if (isDocumentRecord(update) || isDocumentRecord(update.from) || isDocumentRecord(update.to)) {
-                  hasDocChanges = true;
-                  break;
-                }
-              }
-            }
-          }
-          if (!hasDocChanges && changes.removed) {
-            for (const r of Object.values(changes.removed)) {
-              if (isDocumentRecord(r)) {
-                hasDocChanges = true;
-                break;
-              }
-            }
+        for (const r of Object.values(changes.added || {})) {
+          if (isShapeRecord(r)) { hasShapeChange = true; break; }
+        }
+        if (!hasShapeChange) {
+          for (const u of Object.values(changes.updated || {}) as any[]) {
+            const rec = Array.isArray(u) ? u[1] : u;
+            if (isShapeRecord(rec)) { hasShapeChange = true; break; }
           }
         }
-      } catch (e) {
-        hasDocChanges = true; // Fallback to true on any error to be safe
+        if (!hasShapeChange) {
+          for (const r of Object.values(changes.removed || {})) {
+            if (isShapeRecord(r)) { hasShapeChange = true; break; }
+          }
+        }
+      } catch (_) {
+        hasShapeChange = true;
       }
 
-      if (hasDocChanges) {
-        // Record the timestamp of this local change to guard polling
-        lastLocalChangeTimeRef.current = Date.now();
-        
+      if (hasShapeChange) {
         if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => {
-          saveState();
-        }, 500); // 500ms debounce for faster, snappier synchronization
+        saveTimeout = setTimeout(saveState, 400);
       }
     });
 
-    // Poll the server every 5 seconds for updates from other users
+    // ── Poll: merge-in remote changes every 2 seconds ───────────────────────
+    // Because saves are now per-shape, polling can always apply remote shapes
+    // without fear of overwriting local ones — it only adds/updates shapes
+    // that differ from local, and removes shapes the server marked deleted.
+    // The pointer-down guard is removed so updates appear while drawing.
     const pollInterval = setInterval(async () => {
       if (isUpdatingFromServerRef.current) return;
-      if (!isInitialLoadCompleteRef.current) return; // Wait until initial load is done
-      
-      // Prevent stale server loads from overwriting recent active edits/erasures
-      if (Date.now() - lastLocalChangeTimeRef.current < 4000) {
-        return;
-      }
-      
-      let data: any = null;
+      if (!isInitialLoadCompleteRef.current) return;
+
       try {
         const response = await fetch("/api/sync-state");
-        if (response.ok) {
-          data = await response.json();
-        }
-      } catch (err) {
-        // Silently ignore fetch errors during background polling
-      }
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.status === "empty" || !data.shapes) return;
 
-      try {
-        let extracted = getStoreAndSchema(data);
+        const { shapes, deleted } = data as {
+          shapes: Record<string, any>;
+          deleted: string[];
+        };
 
-        if (!extracted || !extracted.store) {
-          try {
-             const localData = localStorage.getItem("canvas-state");
-             if (localData) {
-               extracted = getStoreAndSchema(JSON.parse(localData));
-             }
-          } catch (e) {}
-        }
+        const snapshot = getSnapshot(editor.store) as any;
+        const localStore = snapshot?.document?.store || snapshot?.store || {};
 
-        if (extracted && extracted.store && extracted.schema) {
-          const currentSnapshot = getSnapshot(editor.store) as any;
-          const currentExtracted = getStoreAndSchema(currentSnapshot);
-          const currentStore = currentExtracted ? currentExtracted.store : {};
-          
-          // Get local document records
-          const localDocs: any = {};
-          for (const [id, record] of Object.entries(currentStore || {})) {
-            if (isDocumentRecord(record)) {
-              localDocs[id] = record;
-            }
-          }
-          
-          // Get remote document records
-          const remoteDocs: any = {};
-          for (const [id, record] of Object.entries(extracted.store || {})) {
-            if (isDocumentRecord(record)) {
-              remoteDocs[id] = record;
-            }
-          }
-          
-          // Compare local and remote document-level records
-          const localKeys = Object.keys(localDocs);
-          const remoteKeys = Object.keys(remoteDocs);
-          
-          let hasChanges = false;
-          if (localKeys.length !== remoteKeys.length) {
-            hasChanges = true;
-          } else {
-            // Check if any remote record differs or is missing locally
-            for (const id of remoteKeys) {
-              if (!localDocs[id] || JSON.stringify(localDocs[id]) !== JSON.stringify(remoteDocs[id])) {
-                hasChanges = true;
-                break;
-              }
-            }
-          }
-          
-          if (hasChanges) {
-            // Only update if the user is not currently active drawing/dragging to prevent cursor jumps
-            const inputs = editor.inputs as any;
-            if (!inputs.isDown && !inputs.isDragging) {
-              isUpdatingFromServerRef.current = true;
-              
-              const toPut: any[] = [];
-              const toRemove: any[] = [];
-              
-              for (const [id, rr] of Object.entries(remoteDocs)) {
-                const lr = localDocs[id];
-                if (!lr || JSON.stringify(lr) !== JSON.stringify(rr)) {
-                  toPut.push(rr);
-                }
-              }
-              
-              for (const id of localKeys) {
-                const lr = localDocs[id];
-                if (lr.typeName !== "page" && lr.typeName !== "document" && !remoteDocs[id]) {
-                  toRemove.push(id);
-                }
-              }
-              
-              if (toPut.length > 0 || toRemove.length > 0) {
-                editor.store.put(toPut);
-                if (toRemove.length > 0) {
-                  editor.store.remove(toRemove);
-                }
-              }
-              
-              isUpdatingFromServerRef.current = false;
-            }
+        const toPut: any[] = [];
+        for (const [id, remoteRecord] of Object.entries(shapes)) {
+          if (!isShapeRecord(remoteRecord)) continue;
+          const localRecord = localStore[id];
+          // Only apply if the remote version differs from what we last sent
+          // (i.e. it came from someone else) and differs from local
+          const remoteSerialized = JSON.stringify(remoteRecord);
+          if (
+            lastSentRef.current[id] !== remoteSerialized &&
+            JSON.stringify(localRecord) !== remoteSerialized
+          ) {
+            toPut.push(remoteRecord);
           }
         }
-      } catch (err) {
+
+        const toRemove = (deleted || []).filter((id) => {
+          // Only remove if we didn't delete it ourselves (already gone from lastSent)
+          return lastSentRef.current[id] !== undefined && !knownShapeIdsRef.current.has(id) === false && localStore[id];
+        });
+
+        if (toPut.length > 0 || toRemove.length > 0) {
+          isUpdatingFromServerRef.current = true;
+          if (toPut.length > 0) editor.store.put(toPut);
+          if (toRemove.length > 0) editor.store.remove(toRemove as any[]);
+          isUpdatingFromServerRef.current = false;
+        }
+      } catch (_) {
         // Fail silently during background polling
         isUpdatingFromServerRef.current = false;
       }
-    }, 5000);
+    }, 2000);
 
     return () => {
       unsubscribe();

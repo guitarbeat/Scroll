@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Papyrus", "IM Fell English", "Cinzel", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Papyrus", "IM Fell English", "Cinzel", serif;
+  --font-sans: "IM Fell English", "Cinzel", "Papyrus", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "IM Fell English", "Cinzel", "Papyrus", serif;
   --font-mono: "JetBrains Mono", monospace;
 }
 
@@ -49,7 +49,7 @@ body {
   height: 100vh;
   background-color: #0c0805;
   overflow: hidden;
-  font-family: "Papyrus", "IM Fell English", "Cinzel", serif;
+  font-family: "IM Fell English", "Cinzel", "Papyrus", serif;
   margin: 0;
 }
 

@@ -41,7 +41,7 @@ export default function App() {
   const [isOpened, setIsOpened] = useState(false);
   const [isUnrolling, setIsUnrolling] = useState(false);
   const [isOpeningRig, setIsOpeningRig] = useState(false);
-  const [sealVisible, setSealVisible] = useState(false);
+  const [sealVisible, setSealVisible] = useState(true);
   const [sealCracked, setSealCracked] = useState(false);
 
   const [motes, setMotes] = useState<Mote[]>([]);
@@ -52,14 +52,29 @@ export default function App() {
   const [showScrollPrompt, setShowScrollPrompt] = useState(false);
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
-  const [isMagnifierActive, setIsMagnifierActive] = useState(false);
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
+  // ── Scroll proportions: height driven by viewport, not a fixed ratio ──────
+  // Strategy: fill as much of the viewport height as possible while keeping
+  // the scroll centred. The CSS --rig-width already handles responsive width,
+  // so we just need a stable height target and a safety-net scale.
+  const SCROLL_ASPECT = 9 / 18; // width / height (used only as a minimum shape)
+
   const getTargetViewport = () => {
-    if (typeof window === "undefined") return 720;
-    return Math.max(300, Math.min(window.innerHeight * 0.6, 1100));
+    if (typeof window === "undefined") return 600;
+    const rem     = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+    // Toolbar sits at the bottom: ~56px tall + 20px bottom margin + up to 34px safe-area = ~110px.
+    // The rig is vertically centered, so the effective usable height for the rig is:
+    //   viewport height - toolbar footprint
+    // We use 88% of that remaining space so there's a small visual margin top and bottom.
+    const toolbarFootprint = 110;
+    const usable = (window.innerHeight - toolbarFootprint) * 0.94;
+    // Subtract both rollers so the parchment itself fits within usable.
+    const available = usable - rollerH * 2;
+    return Math.max(280, Math.min(available, 1400));
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -108,20 +123,23 @@ export default function App() {
     setMotes(list);
   }, []);
 
-  // Synchronous and responsive scale tracking so the scroll has exactly the same size on all screens
+  // rigScale: safety-net only. CSS handles width; we only scale if the total
+  // rig height (parchment + rollers) would physically clip the viewport.
   useEffect(() => {
     const handleResize = () => {
-      // Scale the whole rig so the 850px design fits the viewport.
-      // We give 8px breathing room on each side (16px total) so the
-      // roller handles never clip the screen edge.
-      const designWidth = 850;
-      const scale = Math.min(1, (window.innerWidth - 16) / designWidth);
+      const vh  = window.innerHeight;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+      const target  = getTargetViewport();
+      const totalH  = target + rollerH * 2;
+      // Never scale up; only pull down when it would overflow vertically.
+      const scale = totalH > vh ? Math.max(0.5, vh / totalH) : 1;
       setRigScale(scale);
     };
-
-    handleResize(); // run immediately
+    handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Update roller background scroll offset for dynamic rotation
@@ -183,13 +201,8 @@ export default function App() {
     };
   }, [editor]);
 
-  // Automatically unroll the scroll on load
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      unroll();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+  // Page starts with the seal visible — user taps/clicks to break it and unroll
+  // (removed auto-unroll on load)
 
   // Automatically adjust sheet height based on drawn shapes and window resize
   useEffect(() => {
@@ -211,8 +224,8 @@ export default function App() {
       });
 
       const targetViewport = getTargetViewport();
-      // Maintain a dynamic minimum height matching the scroll viewport, expanding as needed up to 5400px
-      const padding = 450;
+      // Minimum height = the full viewport-derived target; expand if shapes go beyond it.
+      const padding = 120;
       const calculatedHeight = Math.max(targetViewport, Math.min(maxY + padding, 5400));
       setDynamicSheetHeight(calculatedHeight);
     };
@@ -796,7 +809,7 @@ export default function App() {
 
             {/* Writing Canvas — inset to match the parchment's own padding exactly */}
             <div 
-              className="absolute top-[64px] bottom-[100px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
+              className="absolute top-[64px] bottom-[120px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
               style={{
                 left: "var(--sheet-padding-x)",
                 right: "var(--sheet-padding-x)"
@@ -804,7 +817,6 @@ export default function App() {
             >
               <WritingCanvas 
                 onEditorReady={setEditor} 
-                isMagnifierActive={isMagnifierActive}
               />
             </div>
           </div>
@@ -838,8 +850,6 @@ export default function App() {
       {editor && isOpened && (
         <MedievalToolbar 
           editor={editor} 
-          isMagnifierActive={isMagnifierActive}
-          setIsMagnifierActive={setIsMagnifierActive}
         />
       )}
 

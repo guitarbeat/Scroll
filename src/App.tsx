@@ -41,7 +41,7 @@ export default function App() {
   const [isOpened, setIsOpened] = useState(false);
   const [isUnrolling, setIsUnrolling] = useState(false);
   const [isOpeningRig, setIsOpeningRig] = useState(false);
-  const [sealVisible, setSealVisible] = useState(false);
+  const [sealVisible, setSealVisible] = useState(true);
   const [sealCracked, setSealCracked] = useState(false);
 
   const [motes, setMotes] = useState<Mote[]>([]);
@@ -64,11 +64,17 @@ export default function App() {
 
   const getTargetViewport = () => {
     if (typeof window === "undefined") return 600;
-    const rem  = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const rem     = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
-    // Use 92% of viewport height minus the two rollers.
-    const available = Math.floor(window.innerHeight * 0.92) - rollerH * 2;
-    return Math.max(300, Math.min(available, 1400));
+    // Toolbar sits at the bottom: ~56px tall + 20px bottom margin + up to 34px safe-area = ~110px.
+    // The rig is vertically centered, so the effective usable height for the rig is:
+    //   viewport height - toolbar footprint
+    // We use 88% of that remaining space so there's a small visual margin top and bottom.
+    const toolbarFootprint = 110;
+    const usable = (window.innerHeight - toolbarFootprint) * 0.94;
+    // Subtract both rollers so the parchment itself fits within usable.
+    const available = usable - rollerH * 2;
+    return Math.max(280, Math.min(available, 1400));
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -195,13 +201,8 @@ export default function App() {
     };
   }, [editor]);
 
-  // Automatically unroll the scroll on load
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      unroll();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+  // Page starts with the seal visible — user taps/clicks to break it and unroll
+  // (removed auto-unroll on load)
 
   // Automatically adjust sheet height based on drawn shapes and window resize
   useEffect(() => {

@@ -446,12 +446,46 @@ function CommunalSync({
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
 
+    // ── Reconnect + visibility robustness ────────────────────────────────────
+    // Re-enter presence (desktop only) after any presence gap.
+    const reenterPresence = () => {
+      if (isTouchDeviceRef.current) return;
+      cursorsChannel.presence
+        .enter({ pageX: 0, pageY: 0, color: SESSION_COLOR.hex, tool: "draw", ts: Date.now() })
+        .catch(() => {});
+    };
+
+    // When Ably reconnects after a drop, reconcile with Redis (to catch any
+    // deltas missed while offline) and re-announce our presence. Ably itself
+    // queues our outbound publishes while disconnected and flushes them on
+    // reconnect, so local strokes made offline are not lost.
+    const onConnected = () => {
+      if (!isInitialLoadDoneRef.current) return; // initial load handles first connect
+      loadFromRedis();
+      reenterPresence();
+    };
+    ably.connection.on("connected", onConnected);
+
+    // Backgrounding the tab: drop our ghost cursor for others; on return,
+    // reconcile and re-enter presence.
+    const onVisibility = () => {
+      if (document.hidden) {
+        try { cursorsChannel.presence.leave(); } catch (_) {}
+      } else if (isInitialLoadDoneRef.current) {
+        loadFromRedis();
+        reenterPresence();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       unsubscribeStore();
       if (saveTimeout) clearTimeout(saveTimeout);
       shapesChannel.unsubscribe("delta", onShapeDelta);
       cursorsChannel.presence.unsubscribe();
       try { cursorsChannel.presence.leave(); } catch (_) {}
+      ably.connection.off("connected", onConnected);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
@@ -497,96 +531,111 @@ function ScrollBoundsUpdater() {
   return null;
 }
 
-interface PointerState { x: number; y: number; isDown: boolean; }
-
-
 // ---------------------------------------------------------------------------
-// MagnifierOverlay
+// Magnifier loupe (touch only)
+//
+// Instead of hand-drawing shapes, we magnify the REAL tldraw canvas by cloning
+// its rendered DOM (`.tl-canvas`) into a circular clip and CSS-transforming it
+// so the point under the finger is centered and scaled. Because the live
+// in-progress stroke is a real DOM node, cloning each frame shows it live.
 // ---------------------------------------------------------------------------
-function MagnifierOverlay({ pointer, editor }: { pointer: PointerState | null; editor: any }) {
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const imageCacheRef = React.useRef<Map<string, HTMLImageElement>>(new Map());
+const DRAW_TOOLS = new Set(["draw", "eraser", "highlight", "laser"]);
+const LOUPE_D = 150;          // loupe diameter in px
+const LOUPE_MAG_MIN = 1.5;
+const LOUPE_MAG_MAX = 6;
+const LOUPE_MAG_DEFAULT = 2.5;
+
+interface LoupeState {
+  active: boolean;
+  lx: number;                 // finger x relative to the canvas container
+  ly: number;                 // finger y relative to the canvas container
+  position: "top" | "bottom"; // where the loupe sits (flips to avoid the finger)
+  mag: number;                // magnification factor
+}
+
+function loadLoupeMag(): number {
+  try {
+    const v = parseFloat(localStorage.getItem("loupe-mag") || "");
+    if (!Number.isNaN(v)) return Math.min(LOUPE_MAG_MAX, Math.max(LOUPE_MAG_MIN, v));
+  } catch (_) {}
+  return LOUPE_MAG_DEFAULT;
+}
+
+function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
+  const outerRef = React.useRef<HTMLDivElement>(null);
+  const hostRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    if (!pointer || !pointer.isDown || !canvasRef.current || !editor) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    let raf = 0;
+    let mounted = true;
+    let wasActive = false;
 
-    ctx.clearRect(0, 0, 130, 130);
-    ctx.fillStyle = "#f4ebd0";
-    ctx.fillRect(0, 0, 130, 130);
-    ctx.strokeStyle = "rgba(163, 129, 81, 0.25)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(65, 65, 61, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(163, 129, 81, 0.4)";
-    ctx.fillRect(64, 61, 2, 2);
-    ctx.fillRect(64, 67, 2, 2);
-    ctx.fillRect(61, 64, 2, 2);
-    ctx.fillRect(67, 64, 2, 2);
+    const loop = () => {
+      if (!mounted) return;
+      const st = stateRef.current;
+      const outer = outerRef.current;
+      const host = hostRef.current;
+      if (outer && host) {
+        if (st.active) {
+          const container = outer.parentElement as HTMLElement | null;
+          const cw = container?.clientWidth ?? 0;
+          const ch = container?.clientHeight ?? 0;
+          outer.style.display = "block";
+          // Follow the finger horizontally (clamped), sit at top or bottom.
+          const left = Math.min(Math.max(st.lx - LOUPE_D / 2, 6), Math.max(6, cw - LOUPE_D - 6));
+          const top = st.position === "top" ? 6 : Math.max(6, ch - LOUPE_D - 6);
+          outer.style.left = `${left}px`;
+          outer.style.top = `${top}px`;
 
-    ctx.save();
-    ctx.translate(65, 65);
-    ctx.scale(2.3, 2.3);
-    ctx.translate(-pointer.x, -pointer.y);
-
-    try {
-      editor.getCurrentPageShapes().forEach((shape: any) => {
-        if (shape.typeName !== "shape") return;
-        if (shape.type === "draw") {
-          const segs = shape.props.segments;
-          if (!segs?.length) return;
-          ctx.beginPath(); ctx.lineCap = "round"; ctx.lineJoin = "round";
-          const cv = shape.props.color;
-          ctx.strokeStyle = cv === "red" ? "#a8251a" : cv === "blue" ? "#1a5ca8" : "#251b12";
-          ctx.lineWidth = shape.props.size === "s" ? 1.5 : shape.props.size === "m" ? 3.5 : 7.0;
-          segs.forEach((seg: any) => {
-            const pts = seg.points;
-            if (!pts?.length) return;
-            ctx.moveTo(shape.x + pts[0].x, shape.y + pts[0].y);
-            for (let i = 1; i < pts.length; i++)
-              ctx.lineTo(shape.x + pts[i].x, shape.y + pts[i].y);
-          });
-          ctx.stroke();
-        } else if (shape.type === "text") {
-          ctx.fillStyle = "#251b12";
-          ctx.font = "italic bold 15px Georgia, serif";
-          ctx.fillText(shape.props.text || "", shape.x, shape.y + 12);
-        } else if (shape.type === "image") {
-          const asset = editor.getAsset(shape.props.assetId);
-          if (asset?.props?.src) {
-            let img = imageCacheRef.current.get(shape.props.assetId);
-            if (!img) {
-              img = new Image(); img.src = asset.props.src;
-              imageCacheRef.current.set(shape.props.assetId, img);
-            }
-            if (img.complete && img.naturalWidth > 0)
-              ctx.drawImage(img, shape.x, shape.y, shape.props.w, shape.props.h);
+          const canvasEl = document.querySelector(".tl-canvas") as HTMLElement | null;
+          if (canvasEl) {
+            const clone = canvasEl.cloneNode(true) as HTMLElement;
+            clone.style.position = "absolute";
+            clone.style.left = "0";
+            clone.style.top = "0";
+            clone.style.margin = "0";
+            clone.style.width = `${cw}px`;
+            clone.style.height = `${ch}px`;
+            clone.style.transformOrigin = "0 0";
+            clone.style.transform =
+              `translate(${LOUPE_D / 2 - st.lx * st.mag}px, ${LOUPE_D / 2 - st.ly * st.mag}px) scale(${st.mag})`;
+            clone.style.pointerEvents = "none";
+            host.replaceChildren(clone);
           }
+          wasActive = true;
+        } else if (wasActive) {
+          outer.style.display = "none";
+          host.replaceChildren();
+          wasActive = false;
         }
-      });
-    } catch (_) {}
-    ctx.restore();
-  }, [pointer, editor]);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => { mounted = false; cancelAnimationFrame(raf); };
+  }, [stateRef]);
 
-  if (!pointer || !pointer.isDown) return null;
   return (
-    <div style={{
-      position: "absolute", left: `${pointer.x}px`, top: `${pointer.y - 110}px`,
-      transform: "translateX(-50%)", width: "134px", height: "134px",
-      borderRadius: "50%", border: "4px solid #b8860b",
-      boxShadow: "0 10px 25px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.3)",
-      zIndex: 1000, pointerEvents: "none", overflow: "hidden", backgroundColor: "#f4ebd0",
-    }} className="flex items-center justify-center animate-fade-in">
-      <div style={{ position: "absolute", inset: "2px", borderRadius: "50%",
-        border: "1.5px solid #ebdcb9", pointerEvents: "none", zIndex: 10 }} />
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "50%",
-        background: "linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)",
-        pointerEvents: "none", zIndex: 11 }} />
-      <canvas ref={canvasRef} width={130} height={130}
-        style={{ width: "130px", height: "130px", borderRadius: "50%" }} />
+    <div
+      ref={outerRef}
+      style={{
+        display: "none",
+        position: "absolute",
+        width: LOUPE_D,
+        height: LOUPE_D,
+        borderRadius: "50%",
+        border: "4px solid #b8860b",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.3)",
+        zIndex: 1000,
+        pointerEvents: "none",
+        overflow: "hidden",
+        backgroundColor: "#f4ebd0",
+      }}
+    >
+      <div ref={hostRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
+      <div style={{ position: "absolute", inset: 2, borderRadius: "50%", border: "1.5px solid #ebdcb9", pointerEvents: "none", zIndex: 10 }} />
+      <div style={{ position: "absolute", left: "50%", top: "50%", width: 5, height: 5, transform: "translate(-50%,-50%)", borderRadius: "50%", background: "rgba(122,31,18,0.35)", pointerEvents: "none", zIndex: 12 }} />
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "50%", background: "linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)", pointerEvents: "none", zIndex: 11 }} />
     </div>
   );
 }
@@ -598,8 +647,9 @@ function MagnifierOverlay({ pointer, editor }: { pointer: PointerState | null; e
 export default function WritingCanvas({ onEditorReady, isMagnifierActive = false }: WritingCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [editor, setEditor] = React.useState<any>(null);
-  const [pointer, setPointer] = React.useState<PointerState | null>(null);
   const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});
+  const loupeRef = React.useRef<LoupeState>({ active: false, lx: 0, ly: 0, position: "top", mag: LOUPE_MAG_DEFAULT });
+  React.useEffect(() => { loupeRef.current.mag = loadLoupeMag(); }, []);
 
   const handleEditorReady = (ed: any) => {
     setEditor(ed);
@@ -665,27 +715,110 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
     return () => container.removeEventListener("paste", handlePaste);
   }, [editor]);
 
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isMagnifierActive) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    setPointer({ x: e.clientX - r.left, y: e.clientY - r.top, isDown: true });
-  };
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isMagnifierActive) { if (pointer) setPointer(null); return; }
-    const r = e.currentTarget.getBoundingClientRect();
-    setPointer({ x: e.clientX - r.left, y: e.clientY - r.top,
-      isDown: (e.buttons & 1) === 1 || e.pointerType === "touch" });
-  };
-  const handlePointerUp = () => setPointer(null);
+  // Touch gesture handling (mobile). Desktop uses mouse and never triggers this.
+  //  - 1 finger + a drawing tool  -> draw, and show the magnifier loupe
+  //  - 2 fingers (no active stroke) -> scroll the parchment vertically
+  //  - 2 fingers while mid-stroke   -> pinch adjusts loupe magnification
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const getTool = () => {
+      try { return editor?.getCurrentToolId?.() ?? "draw"; } catch { return "draw"; }
+    };
+
+    let mode: "none" | "draw" | "scroll" | "pinch" = "none";
+    let lastMidY = 0;
+    let baseDist = 1;
+    let baseMag = loupeRef.current.mag;
+
+    const setLoupeFromTouch = (t: Touch) => {
+      const r = container.getBoundingClientRect();
+      const lx = t.clientX - r.left;
+      const ly = t.clientY - r.top;
+      const st = loupeRef.current;
+      st.lx = lx;
+      st.ly = ly;
+      // Finger-avoidance: if the finger is up near where the loupe sits, flip it down.
+      st.position = ly < LOUPE_D + 48 ? "bottom" : "top";
+      st.active = true;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        if (DRAW_TOOLS.has(getTool())) {
+          mode = "draw";
+          setLoupeFromTouch(e.touches[0]);
+        } else {
+          mode = "none";
+          loupeRef.current.active = false;
+        }
+      } else if (e.touches.length === 2) {
+        const [a, b] = [e.touches[0], e.touches[1]];
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+        if (mode === "draw") {
+          // second finger during a stroke -> adjust loupe magnification
+          mode = "pinch";
+          baseDist = dist;
+          baseMag = loupeRef.current.mag;
+        } else {
+          // two fingers from rest -> scroll the parchment
+          mode = "scroll";
+          lastMidY = (a.clientY + b.clientY) / 2;
+          loupeRef.current.active = false;
+        }
+        try { editor?.cancel?.(); } catch (_) {}
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (mode === "draw" && e.touches.length === 1) {
+        setLoupeFromTouch(e.touches[0]);
+      } else if (mode === "scroll" && e.touches.length >= 2) {
+        const a = e.touches[0], b = e.touches[1];
+        const midY = (a.clientY + b.clientY) / 2;
+        const sw = document.getElementById("sheetWrap");
+        if (sw) sw.scrollTop += lastMidY - midY;
+        lastMidY = midY;
+        e.preventDefault();
+      } else if (mode === "pinch" && e.touches.length >= 2) {
+        const a = e.touches[0], b = e.touches[1];
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+        const mag = Math.min(LOUPE_MAG_MAX, Math.max(LOUPE_MAG_MIN, baseMag * (dist / baseDist)));
+        loupeRef.current.mag = mag;
+        try { localStorage.setItem("loupe-mag", String(mag)); } catch (_) {}
+        e.preventDefault();
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        mode = "none";
+        loupeRef.current.active = false;
+      } else {
+        // Dropping from two fingers to one: do not resume drawing from the
+        // leftover finger (avoids stray marks). Wait for a fresh touch.
+        mode = "none";
+        loupeRef.current.active = false;
+      }
+    };
+
+    container.addEventListener("touchstart", onTouchStart, { passive: false, capture: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+    container.addEventListener("touchend", onTouchEnd, { capture: true });
+    container.addEventListener("touchcancel", onTouchEnd, { capture: true });
+    return () => {
+      container.removeEventListener("touchstart", onTouchStart, true);
+      container.removeEventListener("touchmove", onTouchMove, true);
+      container.removeEventListener("touchend", onTouchEnd, true);
+      container.removeEventListener("touchcancel", onTouchEnd, true);
+    };
+  }, [editor]);
 
   return (
     <div ref={containerRef}
       className="absolute inset-0 w-full h-full pointer-events-auto touch-none select-none"
       style={{ zIndex: 10 }}
-      onPointerDownCapture={handlePointerDown}
-      onPointerMoveCapture={handlePointerMove}
-      onPointerUpCapture={handlePointerUp}
-      onPointerCancelCapture={handlePointerUp}
     >
       <Tldraw
         licenseKey={(import.meta as any).env.VITE_TLDRAW_LICENSE_KEY ||
@@ -701,9 +834,8 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
 
       <GhostCursors cursors={remoteCursors} mySessionId={SESSION_ID} editor={editor} />
 
-      {isMagnifierActive && pointer?.isDown && (
-        <MagnifierOverlay pointer={pointer} editor={editor} />
-      )}
+      {/* Magnifier loupe — touch only, auto-shows while drawing with one finger */}
+      <Loupe stateRef={loupeRef} />
     </div>
   );
 }

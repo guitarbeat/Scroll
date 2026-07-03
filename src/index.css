@@ -50,6 +50,7 @@ body::-webkit-scrollbar,
 
 body {
   height: 100vh;
+  height: 100dvh; /* dynamic viewport: accounts for mobile browser chrome */
   background-color: #0c0805;
   overflow: hidden;
   font-family: "IM Fell English", "Cinzel", "Papyrus", serif;
@@ -948,3 +949,32 @@ body {
 
 
 
+
+
+/* ---------- mobile / touch usability ---------- */
+
+/* On touch devices, enlarge toolbar hit targets to ~44px without blowing up
+   the icon size, and let the toolbar scroll horizontally if it overflows a
+   narrow screen instead of clipping. */
+@media (pointer: coarse) {
+  #medieval-toolbar {
+    max-width: 96vw;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #medieval-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  #medieval-toolbar button {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+}
+
+/* Keep the toolbar clear of the iOS/Android home indicator and browser chrome */
+#medieval-toolbar {
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+}

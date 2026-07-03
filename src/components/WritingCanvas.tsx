@@ -81,14 +81,19 @@ function GhostCursors({
   mySessionId: string;
   editor: any;
 }) {
-  // Re-render on a RAF loop so cursors stay correct as the user scrolls
+  // Re-render on a RAF loop so cursors stay correct as the user scrolls.
+  // Only run the loop when there are actually remote cursors to show.
   const [, tick] = React.useReducer((n) => n + 1, 0);
+  const hasCursors = editor != null && Object.keys(cursors).some(
+    (sid) => sid !== mySessionId && Date.now() - cursors[sid].ts < 15_000
+  );
   useEffect(() => {
+    if (!hasCursors) return; // no cursors — don't burn RAF cycles
     let frame: number;
     const loop = () => { tick(); frame = requestAnimationFrame(loop); };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [hasCursors]);
 
   if (!editor) return null;
   const now = Date.now();
@@ -412,6 +417,10 @@ function CommunalSync({
     const handlePointerMove = (e: PointerEvent) => {
       if (e.pointerType === "touch") { isTouchDeviceRef.current = true; return; }
       if (!isInitialLoadDoneRef.current) return;
+
+      // Refresh tldraw's viewport bounds before mapping coords so the
+      // page-space position is always correct even mid-scroll.
+      try { (editor as any).updateViewportScreenBounds?.(); } catch (_) {}
 
       const pt = screenToPage(editor, e.clientX, e.clientY);
       lastCursorPageRef.current = pt;

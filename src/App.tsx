@@ -111,11 +111,11 @@ export default function App() {
   // Synchronous and responsive scale tracking so the scroll has exactly the same size on all screens
   useEffect(() => {
     const handleResize = () => {
+      // Scale the whole rig so the 850px design fits the viewport.
+      // We give 8px breathing room on each side (16px total) so the
+      // roller handles never clip the screen edge.
       const designWidth = 850;
-      const width = window.innerWidth;
-      // Provide a small margin for standard screen padding
-      const padding = width < 480 ? 16 : 32;
-      const scale = Math.min(1, (width - padding) / designWidth);
+      const scale = Math.min(1, (window.innerWidth - 16) / designWidth);
       setRigScale(scale);
     };
 
@@ -794,9 +794,9 @@ export default function App() {
                 </footer>
               </div>
 
-            {/* Interactive Writing Canvas covering the whole sheet, perfectly bounded within the parchment margins and between headers/footers */}
+            {/* Writing Canvas — inset to match the parchment's own padding exactly */}
             <div 
-              className="absolute top-[40px] bottom-[140px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
+              className="absolute top-[64px] bottom-[100px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
               style={{
                 left: "var(--sheet-padding-x)",
                 right: "var(--sheet-padding-x)"

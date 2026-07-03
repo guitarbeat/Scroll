@@ -35,18 +35,32 @@ const getRedisClient = async () => {
 
 // ---------------------------------------------------------------------------
 // Key layout
-//   canvas:schema          — tldraw schema (one per canvas)
-//   canvas:shape:<id>      — one key per shape / asset record
-//   canvas:deleted         — Redis Set of deleted shape IDs
-//   canvas:cursor:<sid>    — cursor position for a session (30 s TTL)
+//   canvas:schema        — tldraw schema (one per canvas)
+//   canvas:shape:<id>    — one key per shape / asset record
+//   canvas:deleted       — Redis Set of deleted shape IDs
+//
+// Cursors are handled entirely via Ably Presence — nothing stored in Redis.
 // ---------------------------------------------------------------------------
 const SCHEMA_KEY   = "canvas:schema";
 const SHAPE_PREFIX = "canvas:shape:";
 const DELETED_SET  = "canvas:deleted";
-const CURSOR_PREFIX = "canvas:cursor:";
-const CURSOR_TTL    = 30; // seconds
 
 const isRedisConfigured = () => !!(process.env.REDIS_URL || process.env.KV_URL);
+
+// ---------------------------------------------------------------------------
+// Scan all keys matching a pattern using SCAN (non-blocking, O(1) per call).
+// Safer than KEYS in production — avoids blocking the Redis server.
+// ---------------------------------------------------------------------------
+async function scanKeys(client: any, pattern: string): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor = 0;
+  do {
+    const reply = await client.scan(cursor, { MATCH: pattern, COUNT: 200 });
+    cursor = reply.cursor;
+    keys.push(...reply.keys);
+  } while (cursor !== 0);
+  return keys;
+}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -79,58 +93,42 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // ── GET /api/sync-state  (load shapes + cursors) ──────────────────────────
+  // ── GET /api/sync-state  (load full canvas for new joiners) ───────────────
+  // Returns { schema, shapes: Record<id, record>, deleted: string[] }
   if (req.method === "GET") {
     try {
       const client = await getRedisClient();
       if (!client) return res.status(200).json({ status: "empty" });
 
-      const [schemaStr, shapeKeys, deletedIds, cursorKeys] = await Promise.all([
+      // Fetch schema, shape keys (via non-blocking SCAN), and deleted set in parallel
+      const [schemaStr, shapeKeys, deletedIds] = await Promise.all([
         client.get(SCHEMA_KEY),
-        client.keys(SHAPE_PREFIX + "*"),
+        scanKeys(client, SHAPE_PREFIX + "*"),
         client.sMembers(DELETED_SET),
-        client.keys(CURSOR_PREFIX + "*"),
       ]);
 
-      // shapes
+      if (!schemaStr && shapeKeys.length === 0) {
+        return res.status(200).json({ status: "empty" });
+      }
+
       const shapes: Record<string, any> = {};
-      if (shapeKeys && shapeKeys.length > 0) {
+      if (shapeKeys.length > 0) {
         const values: (string | null)[] = await client.mGet(shapeKeys);
         for (let i = 0; i < shapeKeys.length; i++) {
           const v = values[i];
           if (v) {
             try {
-              const id = (shapeKeys[i] as string).slice(SHAPE_PREFIX.length);
+              const id = shapeKeys[i].slice(SHAPE_PREFIX.length);
               shapes[id] = JSON.parse(v);
             } catch (_) {}
           }
         }
       }
 
-      // cursors
-      const cursors: Record<string, any> = {};
-      if (cursorKeys && cursorKeys.length > 0) {
-        const vals: (string | null)[] = await client.mGet(cursorKeys);
-        for (let i = 0; i < cursorKeys.length; i++) {
-          const v = vals[i];
-          if (v) {
-            try {
-              const sid = (cursorKeys[i] as string).slice(CURSOR_PREFIX.length);
-              cursors[sid] = JSON.parse(v);
-            } catch (_) {}
-          }
-        }
-      }
-
-      if (!schemaStr && Object.keys(shapes).length === 0) {
-        return res.status(200).json({ status: "empty", cursors });
-      }
-
       return res.status(200).json({
         schema: schemaStr ? JSON.parse(schemaStr) : null,
         shapes,
         deleted: deletedIds || [],
-        cursors,
       });
     } catch (error: any) {
       console.error("[api/sync-state] GET error:", error);
@@ -138,23 +136,19 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // ── POST /api/sync-state  (save shape diffs + cursor) ────────────────────
+  // ── POST /api/sync-state  (persist shape diffs from a client) ─────────────
+  // Body: { schema?, upserted: Record<id, record>, deleted: string[] }
+  // Cursors are NOT stored here — they go through Ably Presence instead.
   if (req.method === "POST") {
     try {
       const client = await getRedisClient();
       if (!client) return res.status(200).json({ success: false, database: "none" });
 
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-      const {
-        schema,
-        upserted,
-        deleted,
-        cursor, // { sessionId, x, y, color, tool }  — optional
-      } = body as {
+      const { schema, upserted, deleted } = body as {
         schema?: any;
         upserted?: Record<string, any>;
         deleted?: string[];
-        cursor?: { sessionId: string; x: number; y: number; color: string; tool: string };
       };
 
       const pipeline = client.multi();
@@ -175,19 +169,6 @@ export default async function handler(req: any, res: any) {
           pipeline.del(SHAPE_PREFIX + id);
           pipeline.sAdd(DELETED_SET, id);
         }
-      }
-
-      // Store cursor with a TTL so stale cursors auto-expire
-      if (cursor && cursor.sessionId) {
-        const key = CURSOR_PREFIX + cursor.sessionId;
-        pipeline.set(key, JSON.stringify({
-          x: cursor.x,
-          y: cursor.y,
-          color: cursor.color,
-          tool: cursor.tool,
-          ts: Date.now(),
-        }));
-        pipeline.expire(key, CURSOR_TTL);
       }
 
       await pipeline.exec();

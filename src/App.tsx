@@ -51,6 +51,7 @@ export default function App() {
   const [showScrollPrompt, setShowScrollPrompt] = useState(false);
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
+  const [isMagnifierActive, setIsMagnifierActive] = useState(false);
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
@@ -702,12 +703,6 @@ export default function App() {
         className={`transition-all duration-700 tool-${currentTool} ${
           isOpened ? "opacity-100" : "opacity-0"
         } ${isOpeningRig ? "open" : ""}`}
-        style={{
-          transform: `translate(-50%, -50%) scale(${rigScale})`,
-          transformOrigin: "center center",
-          width: "850px",
-          maxWidth: "none",
-        }}
       >
         {/* Top Roller */}
         <div
@@ -810,7 +805,10 @@ export default function App() {
                 right: "var(--sheet-padding-x)"
               }}
             >
-              <WritingCanvas onEditorReady={setEditor} />
+              <WritingCanvas 
+                onEditorReady={setEditor} 
+                isMagnifierActive={isMagnifierActive}
+              />
             </div>
           </div>
         </div>
@@ -838,9 +836,15 @@ export default function App() {
             <div className="guard"></div>
           </div>
         </div>
-
-        {editor && <MedievalToolbar editor={editor} />}
       </div>
+
+      {editor && isOpened && (
+        <MedievalToolbar 
+          editor={editor} 
+          isMagnifierActive={isMagnifierActive}
+          setIsMagnifierActive={setIsMagnifierActive}
+        />
+      )}
 
       {/* SVG filter for realistic tattered edges */}
       <svg style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}>

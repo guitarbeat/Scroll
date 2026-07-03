@@ -6,14 +6,21 @@ import {
   Hand, 
   MousePointer, 
   Undo2,
-  Type
+  Type,
+  Search
 } from "lucide-react";
 
 interface MedievalToolbarProps {
   editor: any;
+  isMagnifierActive: boolean;
+  setIsMagnifierActive: (active: boolean) => void;
 }
 
-export default function MedievalToolbar({ editor }: MedievalToolbarProps) {
+export default function MedievalToolbar({ 
+  editor, 
+  isMagnifierActive, 
+  setIsMagnifierActive 
+}: MedievalToolbarProps) {
   const [currentTool, setCurrentTool] = useState("draw");
   const [currentColor, setCurrentColor] = useState<string>("black");
 
@@ -68,7 +75,7 @@ export default function MedievalToolbar({ editor }: MedievalToolbarProps) {
     <div 
       id="medieval-toolbar"
       onPointerDown={(e) => e.stopPropagation()}
-      className="mt-5 self-center z-40 flex items-center gap-2.5 bg-gradient-to-b from-[#2e1d11] via-[#422e1b] to-[#1e130a] border-2 border-[#cca162] px-4 py-1.5 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.15)] select-none pointer-events-auto shrink-0 scale-90 sm:scale-100 animate-fade-in"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 bg-gradient-to-b from-[#2e1d11] via-[#422e1b] to-[#1e130a] border-2 border-[#cca162] px-4 py-1.5 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.15)] select-none pointer-events-auto shrink-0 scale-105 sm:scale-100 max-w-[95vw] animate-fade-in"
     >
       {/* Tools Section */}
       <div className="flex items-center gap-1 shrink-0">
@@ -144,6 +151,21 @@ export default function MedievalToolbar({ editor }: MedievalToolbarProps) {
           <Hand className="w-3.5 h-3.5" />
           <span className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#1e130a] text-[#ebdcb9] text-[10px] font-serif rounded border border-[#cca162]/50 shadow-[0_4px_8px_rgba(0,0,0,0.5)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50">
             Scroll Hand (Pan)
+          </span>
+        </button>
+
+        {/* Scribe's Glass (Magnifier) */}
+        <button
+          onClick={() => setIsMagnifierActive(!isMagnifierActive)}
+          className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 shrink-0 cursor-pointer relative group ${
+            isMagnifierActive
+              ? "bg-gradient-to-b from-[#a8251a] to-[#590e06] text-[#fdfcf7] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),_0_2px_4px_rgba(0,0,0,0.5)] border border-[#e3bf8c]/30 scale-105"
+              : "text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee]"
+          }`}
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#1e130a] text-[#ebdcb9] text-[10px] font-serif rounded border border-[#cca162]/50 shadow-[0_4px_8px_rgba(0,0,0,0.5)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50">
+            Scribe's Glass (Magnify)
           </span>
         </button>
       </div>

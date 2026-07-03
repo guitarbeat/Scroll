@@ -20,6 +20,18 @@
   --handle-base-size: 1rem;
 }
 
+@media (max-width: 768px) {
+  :root {
+    --sheet-padding-x: 2.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --sheet-padding-x: 1.25rem;
+  }
+}
+
 html {
   overflow: hidden;
   height: 100%;
@@ -350,8 +362,8 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 10;
-  width: 850px;
-  max-width: none;
+  width: calc(100% - 3.5rem);
+  max-width: 850px;
   margin: 0;
   display: flex;
   flex-direction: column;

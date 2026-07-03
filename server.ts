@@ -14,7 +14,7 @@ const getKvClient = () => {
   if (url && token) {
     return createClient({ url, token });
   }
-  throw new Error("Vercel KV credentials missing");
+  return null;
 };
 
 async function startServer() {
@@ -62,6 +62,9 @@ async function startServer() {
 
     try {
       const client = getKvClient();
+      if (!client) {
+        return res.json({ status: "empty" });
+      }
       const state = await client.get("canvas-state");
       res.json(state || { status: "empty" });
     } catch (error) {
@@ -74,6 +77,9 @@ async function startServer() {
   app.post("/api/canvas-state", async (req, res) => {
     try {
       const client = getKvClient();
+      if (!client) {
+        return res.json({ success: true, database: "none" });
+      }
       await client.set("canvas-state", req.body);
       res.json({ success: true, database: "vercel-kv" });
     } catch (error) {

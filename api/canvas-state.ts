@@ -18,7 +18,7 @@ const getKvClient = () => {
   if (url && token) {
     return createClient({ url, token });
   }
-  throw new Error("Vercel KV credentials missing");
+  return null;
 };
 
 export default async function handler(req: any, res: any) {
@@ -64,6 +64,9 @@ export default async function handler(req: any, res: any) {
 
     try {
       const client = getKvClient();
+      if (!client) {
+        return res.status(200).json({ status: "empty" });
+      }
       const state = await client.get("canvas-state");
       return res.status(200).json(state || { status: "empty" });
     } catch (error: any) {
@@ -75,6 +78,9 @@ export default async function handler(req: any, res: any) {
   if (req.method === "POST") {
     try {
       const client = getKvClient();
+      if (!client) {
+        return res.status(200).json({ success: true, database: "none" });
+      }
       await client.set("canvas-state", req.body);
       return res.status(200).json({ success: true, database: "vercel-kv" });
     } catch (error: any) {

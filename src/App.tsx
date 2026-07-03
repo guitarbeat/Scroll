@@ -808,7 +808,7 @@ export default function App() {
 
             {/* Writing Canvas — inset to match the parchment's own padding exactly */}
             <div 
-              className="absolute top-[64px] bottom-[100px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
+              className="absolute top-[64px] bottom-[120px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
               style={{
                 left: "var(--sheet-padding-x)",
                 right: "var(--sheet-padding-x)"

@@ -747,6 +747,11 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
     let baseDist = 1;
     let baseMag = loupeRef.current.mag;
 
+    // Double-tap to type: track the last tap for quick text insertion
+    let lastTapTime = 0;
+    let lastTapX = 0;
+    let lastTapY = 0;
+
     const setLoupeFromTouch = (t: Touch) => {
       const st = loupeRef.current;
       // Store raw viewport coords so the loupe's fixed overlay
@@ -758,6 +763,45 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
+        const t = e.touches[0];
+
+        // Double-tap anywhere on the canvas → switch to text tool and place
+        // a text shape at that exact spot (no separate T-button tap needed).
+        const now = Date.now();
+        const dx = t.clientX - lastTapX;
+        const dy = t.clientY - lastTapY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (now - lastTapTime < 320 && dist < 30) {
+          // It's a double-tap — place text here.
+          e.preventDefault();
+          lastTapTime = 0; // reset so triple-tap doesn't trigger again
+          try {
+            // Map the tap to page space and create a text shape.
+            const pagePoint = screenToPage(editor, t.clientX, t.clientY);
+            const id = createShapeId();
+            editor.batch(() => {
+              editor.setCurrentTool("draw"); // ensure we're not stuck in text
+              editor.createShape({
+                id,
+                type: "text",
+                x: pagePoint.x,
+                y: pagePoint.y,
+                props: { text: "", autoSize: true },
+              });
+              editor.setCurrentTool("select");
+              editor.select(id);
+              // Trigger edit mode so the keyboard opens immediately
+              editor.setEditingShape(id);
+            });
+          } catch (_) {}
+          mode = "none";
+          loupeRef.current.active = false;
+          return;
+        }
+        lastTapTime = now;
+        lastTapX = t.clientX;
+        lastTapY = t.clientY;
+
         if (DRAW_TOOLS.has(getTool())) {
           mode = "draw";
           setLoupeFromTouch(e.touches[0]);
@@ -815,15 +859,40 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
       }
     };
 
+    // Desktop: double-click anywhere on the parchment → place text
+    const onDblClick = (e: MouseEvent) => {
+      // Only in draw mode (not if user is already in text/select)
+      const tool = getTool();
+      if (tool !== "draw" && tool !== "select") return;
+      try {
+        const pagePoint = screenToPage(editor, e.clientX, e.clientY);
+        const id = createShapeId();
+        editor.batch(() => {
+          editor.createShape({
+            id,
+            type: "text",
+            x: pagePoint.x,
+            y: pagePoint.y,
+            props: { text: "", autoSize: true },
+          });
+          editor.setCurrentTool("select");
+          editor.select(id);
+          editor.setEditingShape(id);
+        });
+      } catch (_) {}
+    };
+
     container.addEventListener("touchstart", onTouchStart, { passive: false, capture: true });
-    container.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
-    container.addEventListener("touchend", onTouchEnd, { capture: true });
-    container.addEventListener("touchcancel", onTouchEnd, { capture: true });
+    container.addEventListener("touchmove",  onTouchMove,  { passive: false, capture: true });
+    container.addEventListener("touchend",   onTouchEnd,   { capture: true });
+    container.addEventListener("touchcancel",onTouchEnd,   { capture: true });
+    container.addEventListener("dblclick",   onDblClick,   { capture: true });
     return () => {
-      container.removeEventListener("touchstart", onTouchStart, true);
-      container.removeEventListener("touchmove", onTouchMove, true);
-      container.removeEventListener("touchend", onTouchEnd, true);
-      container.removeEventListener("touchcancel", onTouchEnd, true);
+      container.removeEventListener("touchstart",  onTouchStart, true);
+      container.removeEventListener("touchmove",   onTouchMove,  true);
+      container.removeEventListener("touchend",    onTouchEnd,   true);
+      container.removeEventListener("touchcancel", onTouchEnd,   true);
+      container.removeEventListener("dblclick",    onDblClick,   true);
     };
   }, [editor]);
 

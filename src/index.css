@@ -461,7 +461,7 @@ body {
 
 #sheet {
   position: relative;
-  padding: 64px var(--sheet-padding-x) 72px;
+  padding: 64px var(--sheet-padding-x) 120px;
   color: var(--ink);
   box-shadow: 0 22px 60px rgba(0,0,0,0.6);
   animation: candleFlicker 8s ease-in-out infinite;

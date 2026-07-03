@@ -31,15 +31,17 @@ EventTarget.prototype.addEventListener = function (
 };
 
 const isTldrawLicenseMessage = (args: any[]) => {
-  const text = args.map(arg => (arg && typeof arg === "object" ? JSON.stringify(arg) : String(arg))).join(" ");
-  return (
-    text.includes("No tldraw license key provided") ||
-    text.includes("A license is required for production deployments") ||
-    text.includes("sales@tldraw.com") ||
-    text.includes("Unable to preventDefault inside passive event listener invocation") ||
-    text.includes("passive event listener") ||
-    text.trim() === "-------------------------------------------------------------------"
-  );
+  return args.some(arg => {
+    if (typeof arg !== "string") return false;
+    return (
+      arg.includes("No tldraw license key provided") ||
+      arg.includes("A license is required for production deployments") ||
+      arg.includes("sales@tldraw.com") ||
+      arg.includes("Unable to preventDefault inside passive event listener invocation") ||
+      arg.includes("passive event listener") ||
+      arg.trim() === "-------------------------------------------------------------------"
+    );
+  });
 };
 
 console.log = (...args: any[]) => {

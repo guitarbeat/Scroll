@@ -1,33 +1,56 @@
 import dotenv from "dotenv";
 dotenv.config();
-
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { createClient } from "@vercel/kv";
+import { createClient } from "redis";
 
-// Helper to get a lazy-initialized Vercel KV client.
-// This guarantees environment variables are read AFTER dotenv.config() has run, even with ES modules.
-const getKvClient = () => {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (url && token) {
-    return createClient({ url, token });
+let redisClient: ReturnType<typeof createClient> | null = null;
+let isConnecting = false;
+
+const getRedisClient = async () => {
+  if (redisClient && redisClient.isOpen) {
+    return redisClient;
   }
-  return null;
+  
+  if (isConnecting) {
+    // Basic spin wait while another connection is in progress
+    while (isConnecting) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return redisClient;
+  }
+
+  const url = process.env.KV_URL;
+  if (!url) {
+    return null;
+  }
+
+  isConnecting = true;
+  try {
+    const client = createClient({ url });
+    client.on('error', (err) => console.log('Redis Client Error', err));
+    await client.connect();
+    redisClient = client;
+    return redisClient;
+  } catch (err) {
+    console.error("Failed to connect to Redis:", err);
+    return null;
+  } finally {
+    isConnecting = false;
+  }
 };
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Check if Vercel KV environment variables are configured
-  const isKvConfigured = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-
-  if (isKvConfigured) {
-    console.log("[Server] Vercel KV configuration detected! Using Vercel KV as primary database.");
+  // Check if Redis environment variables are configured
+  const isRedisConfigured = !!process.env.KV_URL;
+  if (isRedisConfigured) {
+    console.log("[Server] Redis configuration detected! Using Redis as primary database.");
   } else {
-    console.warn("[Server] WARNING: Vercel KV not configured. Canvas state will not be persisted.");
+    console.warn("[Server] WARNING: Redis not configured. Canvas state will not be persisted.");
   }
 
   // Use a large JSON body size limit since tldraw snapshots can contain many shapes
@@ -35,13 +58,13 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // API to fetch the shared communal canvas state or diagnostics
-  app.get("/api/canvas-state", async (req, res) => {
+  app.get("/api/sync-state", async (req, res) => {
     // Return connection diagnostics if requested
     if (req.query.status === "true") {
       let pingSuccess = false;
       let pingError = null;
       try {
-        const client = getKvClient();
+        const client = await getRedisClient();
         if (client) {
           await client.set("communal-canvas-ping", "ok");
           const val = await client.get("communal-canvas-ping");
@@ -52,10 +75,10 @@ async function startServer() {
       }
       
       return res.json({
-        isKvConfigured,
-        hasUrl: !!process.env.KV_REST_API_URL,
-        hasToken: !!process.env.KV_REST_API_TOKEN,
-        urlPrefix: process.env.KV_REST_API_URL ? process.env.KV_REST_API_URL.substring(0, 15) + "..." : null,
+        isKvConfigured: isRedisConfigured,
+        hasUrl: !!process.env.KV_URL,
+        hasToken: true,
+        urlPrefix: process.env.KV_URL ? process.env.KV_URL.substring(0, 15) + "..." : null,
         pingSuccess,
         pingError,
         environment: "google-cloud-run",
@@ -63,27 +86,33 @@ async function startServer() {
     }
 
     try {
-      const client = getKvClient();
+      const client = await getRedisClient();
       if (!client) {
         return res.json({ status: "empty" });
       }
-      const state = await client.get("canvas-state");
-      res.json(state || { status: "empty" });
+      const stateStr = await client.get("canvas-state");
+      if (stateStr) {
+        const state = JSON.parse(stateStr);
+        res.json(state);
+      } else {
+        res.json({ status: "empty" });
+      }
     } catch (error: any) {
-      console.error("[Server] Error getting canvas state from Vercel KV:", error);
+      console.error("[Server] Error getting canvas state from Redis:", error);
       res.json({ status: "empty", error: error.message });
     }
   });
 
   // API to save the shared communal canvas state
-  app.post("/api/canvas-state", async (req, res) => {
+  app.post("/api/sync-state", async (req, res) => {
     try {
-      const client = getKvClient();
+      const client = await getRedisClient();
       if (!client) {
         return res.json({ success: true, database: "none" });
       }
-      await client.set("canvas-state", req.body);
-      res.json({ success: true, database: "vercel-kv" });
+      // Vercel KV via rest api automatically parsed json, with node-redis we need to stringify
+      await client.set("canvas-state", JSON.stringify(req.body));
+      res.json({ success: true, database: "redis" });
     } catch (error: any) {
       console.error("[Server] Error saving canvas state:", error);
       res.json({ success: false, error: error.message });

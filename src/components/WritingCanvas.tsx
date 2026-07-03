@@ -63,11 +63,11 @@ function CommunalSync() {
     const loadState = async () => {
       let data: any = null;
       try {
-        const response = await fetch("/api/canvas-state");
+        const response = await fetch("/api/sync-state");
         if (response.ok) {
           data = await response.json();
         } else {
-          console.warn(`%c📜 [Scribe Sync] Load request failed with status ${response.status}`, "color: #f59e0b;");
+          console.warn("[WritingCanvas] Load request failed with status " + response.status);
         }
       } catch (err) {
         console.warn("Error fetching communal canvas state, falling back to local:", err);
@@ -177,7 +177,7 @@ function CommunalSync() {
           // ignore quota exceeded or other localStorage errors
         }
 
-        const response = await fetch("/api/canvas-state", {
+        const response = await fetch("/api/sync-state", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -186,7 +186,7 @@ function CommunalSync() {
         });
 
         if (!response.ok) {
-          console.error(`%c📜 [Scribe Sync] Failed to save state. Server responded with HTTP status ${response.status}`, "color: #f87171;");
+          console.error("[WritingCanvas] Failed to save state. Server responded with HTTP status " + response.status);
         }
       } catch (err) {
         console.error("Error saving communal canvas state:", err);
@@ -262,7 +262,7 @@ function CommunalSync() {
       
       let data: any = null;
       try {
-        const response = await fetch("/api/canvas-state");
+        const response = await fetch("/api/sync-state");
         if (response.ok) {
           data = await response.json();
         }

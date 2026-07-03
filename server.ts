@@ -5,7 +5,18 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { kv } from "@vercel/kv";
+import { createClient } from "@vercel/kv";
+
+// Helper to get a lazy-initialized Vercel KV client.
+// This guarantees environment variables are read AFTER dotenv.config() has run, even with ES modules.
+const getKvClient = () => {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (url && token) {
+    return createClient({ url, token });
+  }
+  return null;
+};
 
 async function startServer() {
   const app = express();
@@ -40,11 +51,37 @@ async function startServer() {
     }
   }
 
-  // API to fetch the shared communal canvas state
+  // API to fetch the shared communal canvas state or diagnostics
   app.get("/api/canvas-state", async (req, res) => {
+    // Return connection diagnostics if requested
+    if (req.query.status === "true") {
+      const client = getKvClient();
+      let pingSuccess = false;
+      let pingError = null;
+      if (client) {
+        try {
+          await client.set("communal-canvas-ping", "ok");
+          const val = await client.get("communal-canvas-ping");
+          pingSuccess = val === "ok";
+        } catch (err: any) {
+          pingError = err.message || String(err);
+        }
+      }
+      return res.json({
+        isKvConfigured,
+        hasUrl: !!process.env.KV_REST_API_URL,
+        hasToken: !!process.env.KV_REST_API_TOKEN,
+        urlPrefix: process.env.KV_REST_API_URL ? process.env.KV_REST_API_URL.substring(0, 15) + "..." : null,
+        pingSuccess,
+        pingError,
+        environment: "google-cloud-run",
+      });
+    }
+
     try {
-      if (isKvConfigured) {
-        const state = await kv.get("canvas-state");
+      const client = getKvClient();
+      if (client) {
+        const state = await client.get("canvas-state");
         res.json(state || { status: "empty" });
       } else {
         res.json(canvasState || { status: "empty" });
@@ -59,8 +96,9 @@ async function startServer() {
   // API to save the shared communal canvas state
   app.post("/api/canvas-state", async (req, res) => {
     try {
-      if (isKvConfigured) {
-        await kv.set("canvas-state", req.body);
+      const client = getKvClient();
+      if (client) {
+        await client.set("canvas-state", req.body);
         res.json({ success: true, database: "vercel-kv" });
       } else {
         canvasState = req.body;

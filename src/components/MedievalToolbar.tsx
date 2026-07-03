@@ -7,7 +7,8 @@ import {
   MousePointer, 
   Undo2,
   Type,
-  Search
+  Search,
+  Database
 } from "lucide-react";
 
 interface MedievalToolbarProps {
@@ -23,6 +24,30 @@ export default function MedievalToolbar({
 }: MedievalToolbarProps) {
   const [currentTool, setCurrentTool] = useState("draw");
   const [currentColor, setCurrentColor] = useState<string>("black");
+  const [dbStatus, setDbStatus] = useState<{
+    isKvConfigured: boolean;
+    hasUrl: boolean;
+    hasToken: boolean;
+    pingSuccess: boolean;
+    pingError: string | null;
+    environment: string;
+  } | null>(null);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+  const checkDbStatus = async () => {
+    setIsCheckingStatus(true);
+    try {
+      const res = await fetch("/api/canvas-state?status=true");
+      if (res.ok) {
+        const data = await res.json();
+        setDbStatus(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch database status", e);
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  };
 
   useEffect(() => {
     if (!editor) return;
@@ -42,6 +67,7 @@ export default function MedievalToolbar({
 
     const cleanup = editor.store.listen(update);
     update(); // Initial sync
+    checkDbStatus(); // Check database status
     return cleanup;
   }, [editor]);
 
@@ -201,7 +227,7 @@ export default function MedievalToolbar({
       <div className="w-[1.5px] h-5 bg-gradient-to-b from-[#cca162]/15 via-[#cca162]/55 to-[#cca162]/15 shrink-0" />
 
       {/* History and Utility Section */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Undo Stroke */}
         <button
           onClick={() => editor.undo()}
@@ -211,6 +237,71 @@ export default function MedievalToolbar({
           <span className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#1e130a] text-[#ebdcb9] text-[10px] font-serif rounded border border-[#cca162]/50 shadow-[0_4px_8px_rgba(0,0,0,0.5)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 whitespace-nowrap z-50">
             Undo Stroke
           </span>
+        </button>
+
+        {/* Database Sync Status */}
+        <button
+          onClick={checkDbStatus}
+          disabled={isCheckingStatus}
+          className={`w-8 h-8 flex items-center justify-center rounded-full relative group transition-all shrink-0 cursor-pointer text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] ${
+            isCheckingStatus ? "animate-spin" : "active:scale-90"
+          }`}
+        >
+          <Database className="w-3.5 h-3.5" />
+          
+          {/* Status Indicator Dot */}
+          <span className="absolute top-1 right-1 flex h-2 w-2">
+            {dbStatus?.isKvConfigured && dbStatus?.pingSuccess ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </>
+            ) : dbStatus?.isKvConfigured && !dbStatus?.pingSuccess ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </>
+            ) : (
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-500"></span>
+            )}
+          </span>
+
+          {/* Status Tooltip */}
+          <div className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 p-3 bg-[#1e130a]/95 text-[#ebdcb9] text-[11px] font-serif rounded-lg border border-[#cca162] shadow-[0_8px_16px_rgba(0,0,0,0.7)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 min-w-[200px] text-left leading-relaxed z-50">
+            <div className="font-sans font-semibold text-[#cca162] border-b border-[#cca162]/30 pb-1 mb-1.5 flex items-center justify-between">
+              <span>Communal Scribe Link</span>
+              <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-[#cca162]/20 font-mono">
+                {dbStatus?.isKvConfigured && dbStatus?.pingSuccess ? "Synchronized" : "Local Only"}
+              </span>
+            </div>
+            
+            <p className="mb-1 font-sans text-xs">
+              {dbStatus?.isKvConfigured ? (
+                <>
+                  <strong className="text-emerald-400">Connected to Vercel Redis!</strong>
+                  <br />
+                  Communal canvas is syncing in real-time across all deployments.
+                </>
+              ) : (
+                <>
+                  <strong className="text-zinc-400 font-sans">Using Local Storage sandbox.</strong>
+                  <br />
+                  To sync with Vercel, copy your Vercel KV tokens into AI Studio Settings.
+                </>
+              )}
+            </p>
+
+            {dbStatus?.isKvConfigured && !dbStatus?.pingSuccess && (
+              <p className="text-amber-400 font-sans mt-1">
+                ⚠️ Ping failed: {dbStatus.pingError || "Unknown connection error"}
+              </p>
+            )}
+
+            <div className="mt-2 text-[9px] text-[#ebdcb9]/60 font-sans flex items-center justify-between border-t border-[#cca162]/10 pt-1.5">
+              <span>Click to test connection</span>
+              <span className="font-mono text-[8px]">Env: {dbStatus?.environment || "Unknown"}</span>
+            </div>
+          </div>
         </button>
       </div>
     </div>

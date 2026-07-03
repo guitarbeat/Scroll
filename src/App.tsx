@@ -56,14 +56,22 @@ export default function App() {
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
 
+  // ── Fixed aspect ratio: iPhone 16 Pro scroll viewport ──────────────────
+  // The scroll parchment is always 9:18 (≈ iPhone 16 Pro usable drawing area).
+  // We derive both the rig scale AND the viewport height from the actual rig
+  // render width, so every screen gets the same proportions.
+  // Design width = 850px (max-width of #rig in CSS).
+  const SCROLL_ASPECT = 9 / 18; // width / height — tall narrow scroll
+
   const getTargetViewport = () => {
-    if (typeof window === "undefined") return 720;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    // On mobile (narrow screens) use up to 80% of viewport height so the
-    // scroll actually fills the phone screen. On desktop cap at 1100px.
-    const pct = vw < 600 ? 0.82 : 0.65;
-    return Math.max(320, Math.min(Math.round(vh * pct), 1100));
+    if (typeof window === "undefined") return 540;
+    // The actual rendered rig width after CSS --rig-width and max-width cap:
+    const renderedRigWidth = Math.min(
+      window.innerWidth - (window.innerWidth < 480 ? 88 : window.innerWidth < 768 ? 128 : 176),
+      850
+    );
+    // Height = width / aspect ratio, clamped to sensible bounds.
+    return Math.max(320, Math.min(Math.round(renderedRigWidth / SCROLL_ASPECT), 1200));
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -112,25 +120,20 @@ export default function App() {
     setMotes(list);
   }, []);
 
-  // Scale the whole rig so the 850px design fits the viewport.
-  // The CSS --rig-width already makes the rig responsive for width,
-  // so we only apply a JS scale when the screen is so narrow that even
-  // the CSS-shrunk rig would overflow (i.e. viewport < the rig's natural
-  // rendered width at scale 1). In practice on phones the CSS handles it,
-  // so scale stays 1 and only kicks in below ~380px edge cases.
+  // Scale the rig so it fits the viewport both horizontally and vertically.
+  // The scroll has a fixed 9:18 aspect ratio, so on very short/wide screens
+  // (landscape phone, small desktop) we may also need to scale down for height.
   useEffect(() => {
     const handleResize = () => {
       const vw = window.innerWidth;
-      // At 480px the CSS rig-width is calc(100% - 5.5rem) = 480-88 = 392px.
-      // The rig max-width is 850px. Scale is only needed when the rig's
-      // natural size exceeds what CSS already shrinks it to. Since CSS
-      // handles the responsive width, we only scale if the whole thing
-      // (including the handle arms that extend outside --rig-width)
-      // would clip the screen. Handle arms add ~88px on each side at
-      // base-size 0.5rem (480px breakpoint). So effective full width is
-      // rig-width + 2 * handle-arm ~= rig-width + 60px at small sizes.
-      // Below 380px even handle shrinking may not be enough.
-      const scale = vw < 380 ? Math.max(0.5, vw / 380) : 1;
+      const vh = window.innerHeight;
+      // Rig design size: 850px wide, plus ~120px for rollers top/bottom.
+      const rigDesignW = 850;
+      const rigDesignH = Math.round(850 / (9 / 18)) + 120; // parchment + rollers
+      const scaleW = vw / rigDesignW;
+      const scaleH = vh / rigDesignH;
+      // Only scale DOWN, never UP. Never below 0.45 (still usable).
+      const scale = Math.max(0.45, Math.min(1, scaleW, scaleH));
       setRigScale(scale);
     };
     handleResize();
@@ -225,8 +228,9 @@ export default function App() {
       });
 
       const targetViewport = getTargetViewport();
-      // Maintain a dynamic minimum height matching the scroll viewport, expanding as needed up to 5400px
-      const padding = 450;
+      // Maintain a dynamic minimum height matching the fixed aspect-ratio
+      // viewport, expanding only if shapes extend beyond it (up to 5400px).
+      const padding = 200;
       const calculatedHeight = Math.max(targetViewport, Math.min(maxY + padding, 5400));
       setDynamicSheetHeight(calculatedHeight);
     };

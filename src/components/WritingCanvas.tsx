@@ -546,10 +546,9 @@ const LOUPE_MAG_DEFAULT = 2.5;
 
 interface LoupeState {
   active: boolean;
-  lx: number;                 // finger x relative to the canvas container
-  ly: number;                 // finger y relative to the canvas container
-  position: "top" | "bottom"; // where the loupe sits (flips to avoid the finger)
-  mag: number;                // magnification factor
+  lx: number;   // finger x in viewport (clientX)
+  ly: number;   // finger y in viewport (clientY)
+  mag: number;  // magnification factor
 }
 
 function loadLoupeMag(): number {
@@ -562,7 +561,7 @@ function loadLoupeMag(): number {
 
 function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
   const outerRef = React.useRef<HTMLDivElement>(null);
-  const hostRef = React.useRef<HTMLDivElement>(null);
+  const hostRef  = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     let raf = 0;
@@ -571,33 +570,43 @@ function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
 
     const loop = () => {
       if (!mounted) return;
-      const st = stateRef.current;
+      const st    = stateRef.current;
       const outer = outerRef.current;
-      const host = hostRef.current;
-      if (outer && host) {
-        if (st.active) {          const container = outer.parentElement as HTMLElement | null;
-          const cw = container?.clientWidth ?? 0;
-          const ch = container?.clientHeight ?? 0;
-          outer.style.display = "block";
-          // Follow the finger horizontally (clamped), sit at top or bottom.
-          const left = Math.min(Math.max(st.lx - LOUPE_D / 2, 6), Math.max(6, cw - LOUPE_D - 6));
-          const top = st.position === "top" ? 6 : Math.max(6, ch - LOUPE_D - 6);
-          outer.style.left = `${left}px`;
-          outer.style.top = `${top}px`;
+      const host  = hostRef.current;
 
+      if (outer && host) {
+        if (st.active) {
+          outer.style.display = "block";
+
+          // Find the real tldraw canvas and clone it.
+          // We measure it in viewport-space so we can translate it so that
+          // the finger's page position ends up in the centre of the loupe.
           const canvasEl = document.querySelector(".tl-canvas") as HTMLElement | null;
           if (canvasEl) {
+            const cr   = canvasEl.getBoundingClientRect();
             const clone = canvasEl.cloneNode(true) as HTMLElement;
-            clone.style.position = "absolute";
-            clone.style.left = "0";
-            clone.style.top = "0";
-            clone.style.margin = "0";
-            clone.style.width = `${cw}px`;
-            clone.style.height = `${ch}px`;
+            clone.style.cssText = "";           // wipe inherited styles
+            clone.style.position        = "absolute";
+            clone.style.left            = "0";
+            clone.style.top             = "0";
+            clone.style.width           = `${cr.width}px`;
+            clone.style.height          = `${cr.height}px`;
             clone.style.transformOrigin = "0 0";
-            clone.style.transform =
-              `translate(${LOUPE_D / 2 - st.lx * st.mag}px, ${LOUPE_D / 2 - st.ly * st.mag}px) scale(${st.mag})`;
-            clone.style.pointerEvents = "none";
+            clone.style.pointerEvents   = "none";
+
+            // st.lx / st.ly are viewport-space finger coords.
+            // We want the finger position to appear centred in the loupe.
+            const cx = LOUPE_D / 2;
+            const cy = LOUPE_D / 2;
+            // Finger relative to the canvas element's top-left in viewport space:
+            const fx = st.lx - cr.left;
+            const fy = st.ly - cr.top;
+            // Translate so (fx, fy) sits at (cx, cy) after scaling:
+            //   cx = fx * mag + tx  =>  tx = cx - fx * mag
+            const tx = cx - fx * st.mag;
+            const ty = cy - fy * st.mag;
+            clone.style.transform = `translate(${tx}px, ${ty}px) scale(${st.mag})`;
+
             host.replaceChildren(clone);
           }
           wasActive = true;
@@ -617,23 +626,31 @@ function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
     <div
       ref={outerRef}
       style={{
-        display: "none",
-        position: "absolute",
-        width: LOUPE_D,
-        height: LOUPE_D,
-        borderRadius: "50%",
-        border: "4px solid #b8860b",
-        boxShadow: "0 10px 25px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.3)",
-        zIndex: 1000,
-        pointerEvents: "none",
-        overflow: "hidden",
-        backgroundColor: "#f4ebd0",
+        // Fixed in the viewport so it truly floats above everything —
+        // centred horizontally, sitting just above the top roller of the scroll.
+        display:        "none",
+        position:       "fixed",
+        top:            "12px",
+        left:           "50%",
+        transform:      "translateX(-50%)",
+        width:          LOUPE_D,
+        height:         LOUPE_D,
+        borderRadius:   "50%",
+        border:         "4px solid #b8860b",
+        boxShadow:      "0 10px 30px rgba(0,0,0,0.7), 0 0 0 1px rgba(204,161,98,0.4), inset 0 2px 4px rgba(255,255,255,0.3)",
+        zIndex:         9999,
+        pointerEvents:  "none",
+        overflow:       "hidden",
+        backgroundColor:"#f4ebd0",
       }}
     >
       <div ref={hostRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
+      {/* Inner brass ring */}
       <div style={{ position: "absolute", inset: 2, borderRadius: "50%", border: "1.5px solid #ebdcb9", pointerEvents: "none", zIndex: 10 }} />
-      <div style={{ position: "absolute", left: "50%", top: "50%", width: 5, height: 5, transform: "translate(-50%,-50%)", borderRadius: "50%", background: "rgba(122,31,18,0.35)", pointerEvents: "none", zIndex: 12 }} />
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "50%", background: "linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)", pointerEvents: "none", zIndex: 11 }} />
+      {/* Centre crosshair dot */}
+      <div style={{ position: "absolute", left: "50%", top: "50%", width: 6, height: 6, transform: "translate(-50%,-50%)", borderRadius: "50%", background: "rgba(122,31,18,0.4)", pointerEvents: "none", zIndex: 12 }} />
+      {/* Glass glare */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "45%", background: "linear-gradient(to bottom, rgba(255,255,255,0.18) 0%, transparent 100%)", pointerEvents: "none", zIndex: 11, borderRadius: "50% 50% 0 0" }} />
     </div>
   );
 }
@@ -646,7 +663,7 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [editor, setEditor] = React.useState<any>(null);
   const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});
-  const loupeRef = React.useRef<LoupeState>({ active: false, lx: 0, ly: 0, position: "top", mag: LOUPE_MAG_DEFAULT });
+  const loupeRef = React.useRef<LoupeState>({ active: false, lx: 0, ly: 0, mag: LOUPE_MAG_DEFAULT });
   React.useEffect(() => { loupeRef.current.mag = loadLoupeMag(); }, []);
 
   const handleEditorReady = (ed: any) => {
@@ -731,14 +748,11 @@ export default function WritingCanvas({ onEditorReady }: WritingCanvasProps) {
     let baseMag = loupeRef.current.mag;
 
     const setLoupeFromTouch = (t: Touch) => {
-      const r = container.getBoundingClientRect();
-      const lx = t.clientX - r.left;
-      const ly = t.clientY - r.top;
       const st = loupeRef.current;
-      st.lx = lx;
-      st.ly = ly;
-      // Finger-avoidance: if the finger is up near where the loupe sits, flip it down.
-      st.position = ly < LOUPE_D + 48 ? "bottom" : "top";
+      // Store raw viewport coords so the loupe's fixed overlay
+      // can correctly map them against the canvas element's getBoundingClientRect().
+      st.lx = t.clientX;
+      st.ly = t.clientY;
       st.active = true;
     };
 

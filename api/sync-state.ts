@@ -17,7 +17,7 @@ const getRedisClient = async () => {
     return redisClient;
   }
 
-  const url = process.env.KV_URL;
+  const url = process.env.REDIS_URL || process.env.KV_URL;
   if (!url) {
     return null;
   }
@@ -38,7 +38,7 @@ const getRedisClient = async () => {
   }
 };
 
-const isRedisConfigured = () => !!process.env.KV_URL;
+const isRedisConfigured = () => !!(process.env.REDIS_URL || process.env.KV_URL);
 
 // Vercel Node.js Serverless Function.
 // Handles GET (load state / diagnostics) and POST (save state) for /api/sync-state.
@@ -62,7 +62,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({
         isKvConfigured: isRedisConfigured(),
         hasUrl: !!process.env.KV_URL,
-        urlPrefix: process.env.KV_URL
+        urlPrefix: (process.env.REDIS_URL || process.env.KV_URL)
           ? process.env.KV_URL.substring(0, 15) + "..."
           : null,
         pingSuccess,

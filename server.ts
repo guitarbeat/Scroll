@@ -21,7 +21,7 @@ const getRedisClient = async () => {
     return redisClient;
   }
 
-  const url = process.env.KV_URL;
+  const url = process.env.REDIS_URL || process.env.KV_URL;
   if (!url) {
     return null;
   }
@@ -46,7 +46,7 @@ async function startServer() {
   const PORT = 3000;
 
   // Check if Redis environment variables are configured
-  const isRedisConfigured = !!process.env.KV_URL;
+  const isRedisConfigured = !!(process.env.REDIS_URL || process.env.KV_URL);
   if (isRedisConfigured) {
     console.log("[Server] Redis configuration detected! Using Redis as primary database.");
   } else {

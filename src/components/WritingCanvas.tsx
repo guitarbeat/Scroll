@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Tldraw, useEditor, getSnapshot, loadSnapshot } from "tldraw";
+import { Tldraw, useEditor, getSnapshot, loadSnapshot, createShapeId } from "tldraw";
 import "tldraw/tldraw.css";
 
 interface WritingCanvasProps {
@@ -178,6 +178,11 @@ function CommunalSync() {
               if (Array.isArray(update)) {
                 const [from, to] = update;
                 if (isDocumentRecord(from) || isDocumentRecord(to)) {
+                  hasDocChanges = true;
+                  break;
+                }
+              } else if (update && typeof update === "object") {
+                if (isDocumentRecord(update) || isDocumentRecord(update.from) || isDocumentRecord(update.to)) {
                   hasDocChanges = true;
                   break;
                 }
@@ -375,6 +380,7 @@ function MagnifierOverlay({
   editor: any;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const imageCacheRef = React.useRef<Map<string, HTMLImageElement>>(new Map());
 
   React.useEffect(() => {
     if (!pointer || !pointer.isDown || !canvasRef.current || !editor) return;
@@ -454,6 +460,29 @@ function MagnifierOverlay({
             ctx.fillStyle = "#251b12";
             ctx.font = "italic bold 15px Georgia, serif";
             ctx.fillText(shape.props.text || "", shape.x, shape.y + 12);
+          } else if (shape.type === "image") {
+            const assetId = shape.props.assetId;
+            if (assetId) {
+              const asset = editor.getAsset(assetId);
+              if (asset && asset.props && asset.props.src) {
+                let imgElement = imageCacheRef.current.get(assetId);
+                if (!imgElement) {
+                  imgElement = new Image();
+                  imgElement.src = asset.props.src;
+                  imgElement.onload = () => {
+                    // Trigger redrawing if possible
+                  };
+                  imageCacheRef.current.set(assetId, imgElement);
+                }
+                if (imgElement.complete && imgElement.naturalWidth > 0) {
+                  ctx.drawImage(imgElement, shape.x, shape.y, shape.props.w, shape.props.h);
+                } else {
+                  ctx.strokeStyle = "rgba(163, 129, 81, 0.4)";
+                  ctx.lineWidth = 1;
+                  ctx.strokeRect(shape.x, shape.y, shape.props.w, shape.props.h);
+                }
+              }
+            }
           }
         }
       });
@@ -554,6 +583,96 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
       container.removeEventListener("wheel", handleWheel, { capture: true });
     };
   }, []);
+
+  // Hook up clipboard pasting for images
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !editor) return;
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          // Prevent default browser/tldraw paste for images
+          e.preventDefault();
+
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const result = event.target?.result;
+            if (typeof result !== "string") return;
+
+            const img = new Image();
+            img.onload = () => {
+              // Proportionally scale to prevent massive images on the medieval parchment
+              let w = img.width;
+              let h = img.height;
+              const maxDim = 500; // fits beautifully on standard parchment layout
+              if (w > maxDim || h > maxDim) {
+                const ratio = Math.min(maxDim / w, maxDim / h);
+                w = Math.round(w * ratio);
+                h = Math.round(h * ratio);
+              }
+
+              // Create unique IDs using tldraw helpers
+              const randId = Math.random().toString(36).substring(2, 11);
+              const assetId = ("asset:" + randId) as any;
+              const shapeId = createShapeId(randId);
+
+              // Center the pasted image beautifully in the visible container
+              const rect = container.getBoundingClientRect();
+              const cx = Math.max(20, rect.width / 2 - w / 2);
+              const cy = Math.max(20, rect.height / 2 - h / 2);
+
+              // Register asset and render image shape
+              editor.run(() => {
+                editor.createAssets([
+                  {
+                    id: assetId,
+                    type: "image",
+                    typeName: "asset",
+                    props: {
+                      name: file.name || "parchment_paste.png",
+                      src: result,
+                      w,
+                      h,
+                      mimeType: file.type,
+                    },
+                  },
+                ]);
+
+                editor.createShapes([
+                  {
+                    id: shapeId,
+                    type: "image",
+                    x: cx,
+                    y: cy,
+                    props: {
+                      assetId,
+                      w,
+                      h,
+                    },
+                  },
+                ]);
+              });
+            };
+            img.src = result;
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    };
+
+    container.addEventListener("paste", handlePaste);
+    return () => {
+      container.removeEventListener("paste", handlePaste);
+    };
+  }, [editor]);
 
   // Capture phase pointer listeners to grab touch/mouse points without Tldraw event swallowing
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {

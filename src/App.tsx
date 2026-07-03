@@ -775,27 +775,27 @@ export default function App() {
                 className="relative z-0 flex flex-col justify-between"
                 style={{ minHeight: `${dynamicSheetHeight}px` }}
               >
-              {/* Flex spacer to push the footer down to the very bottom of the sheet */}
-              <div className="flex-1 w-full pointer-events-none" />
+                {/* Flex spacer to push the footer down to the very bottom of the sheet */}
+                <div className="flex-1 w-full pointer-events-none" />
 
-              {/* Signature / colophon */}
-              <footer className="reveal mt-6 text-center pb-4 relative z-20 pointer-events-auto">
-                <div className="mt-2 flex justify-center">
-                  <button
-                    onClick={reroll}
-                    className="group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8a1f14] rounded-full transition-transform active:scale-95 hover:scale-105 relative z-30"
-                    aria-label="Roll the scroll again"
-                  >
-                    <img
-                       src="/stamp.png"
-                       alt="Wax Seal"
-                       referrerPolicy="no-referrer"
-                       className="w-24 h-24 object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] transition-all group-hover:brightness-110"
-                    />
-                  </button>
-                </div>
-              </footer>
-            </div>
+                {/* Signature / colophon */}
+                <footer className="reveal mt-6 text-center pb-4 relative z-20 pointer-events-auto">
+                  <div className="mt-2 flex justify-center">
+                    <button
+                      onClick={reroll}
+                      className="group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8a1f14] rounded-full transition-transform active:scale-95 hover:scale-105 relative z-30"
+                      aria-label="Roll the scroll again"
+                    >
+                      <img
+                        src="/stamp.png"
+                        alt="Wax Seal"
+                        referrerPolicy="no-referrer"
+                        className="w-24 h-24 object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] transition-all group-hover:brightness-110"
+                      />
+                    </button>
+                  </div>
+                </footer>
+              </div>
 
             {/* Interactive Writing Canvas covering the whole sheet, perfectly bounded within the parchment margins and between headers/footers */}
             <div 

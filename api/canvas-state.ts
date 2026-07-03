@@ -1,4 +1,15 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import { kv } from "@vercel/kv";
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "4.5mb",
+    },
+  },
+};
 
 export default async function handler(req: any, res: any) {
   // Enable CORS

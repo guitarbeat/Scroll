@@ -1,11 +1,11 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ override: true });
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "redis";
 
-let redisClient: ReturnType<typeof createClient> | null = null;
+let redisClient: any = null;
 let isConnecting = false;
 
 const getRedisClient = async () => {
@@ -90,7 +90,7 @@ async function startServer() {
       if (!client) {
         return res.json({ status: "empty" });
       }
-      const stateStr = await client.get("canvas-state");
+      const stateStr = await client.get("canvas-state") as string;
       if (stateStr) {
         const state = JSON.parse(stateStr);
         res.json(state);

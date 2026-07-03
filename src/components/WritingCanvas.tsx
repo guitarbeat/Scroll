@@ -704,7 +704,7 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
   return (
     <div 
       ref={containerRef}
-      className="absolute inset-0 w-full h-full pointer-events-auto"
+      className="absolute inset-0 w-full h-full pointer-events-auto touch-none select-none"
       style={{ zIndex: 10 }}
       onPointerDownCapture={handlePointerDown}
       onPointerMoveCapture={handlePointerMove}

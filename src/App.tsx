@@ -799,7 +799,7 @@ export default function App() {
 
             {/* Interactive Writing Canvas covering the whole sheet, perfectly bounded within the parchment margins and between headers/footers */}
             <div 
-              className="absolute top-[40px] bottom-[140px] z-10 pointer-events-auto"
+              className="absolute top-[40px] bottom-[140px] z-10 pointer-events-auto touch-none select-none"
               style={{
                 left: "var(--sheet-padding-x)",
                 right: "var(--sheet-padding-x)"

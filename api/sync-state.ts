@@ -1,25 +1,21 @@
 import { createClient } from "redis";
 
-// Reuse the Redis connection across warm serverless invocations.
+// ---------------------------------------------------------------------------
+// Redis connection — reused across warm serverless invocations
+// ---------------------------------------------------------------------------
 let redisClient: any = null;
 let isConnecting = false;
 
 const getRedisClient = async () => {
-  if (redisClient && redisClient.isOpen) {
-    return redisClient;
-  }
+  if (redisClient && redisClient.isOpen) return redisClient;
 
   if (isConnecting) {
-    while (isConnecting) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    while (isConnecting) await new Promise((r) => setTimeout(r, 50));
     return redisClient;
   }
 
   const url = process.env.REDIS_URL || process.env.KV_URL;
-  if (!url) {
-    return null;
-  }
+  if (!url) return null;
 
   isConnecting = true;
   try {
@@ -37,22 +33,27 @@ const getRedisClient = async () => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Key layout
+//   canvas:schema          — tldraw schema (one per canvas)
+//   canvas:shape:<id>      — one key per shape / asset record
+//   canvas:deleted         — Redis Set of deleted shape IDs
+//   canvas:cursor:<sid>    — cursor position for a session (30 s TTL)
+// ---------------------------------------------------------------------------
+const SCHEMA_KEY   = "canvas:schema";
+const SHAPE_PREFIX = "canvas:shape:";
+const DELETED_SET  = "canvas:deleted";
+const CURSOR_PREFIX = "canvas:cursor:";
+const CURSOR_TTL    = 30; // seconds
+
 const isRedisConfigured = () => !!(process.env.REDIS_URL || process.env.KV_URL);
 
-// Redis key layout:
-//   canvas:schema          — the tldraw schema object (one per canvas)
-//   canvas:shape:<id>      — one key per shape/asset record
-//   canvas:deleted         — a Redis Set of shape IDs that have been removed
-//
-// This per-shape layout means concurrent saves from two users only overwrite
-// the specific shapes they changed, not each other's shapes.
-
-const SCHEMA_KEY = "canvas:schema";
-const SHAPE_PREFIX = "canvas:shape:";
-const DELETED_SET = "canvas:deleted";
-
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
 export default async function handler(req: any, res: any) {
-  // ── GET /api/sync-state?status=true  (diagnostics) ──────────────────────
+
+  // ── GET ?status=true  (diagnostics) ───────────────────────────────────────
   if (req.method === "GET" && req.query?.status === "true") {
     let pingSuccess = false;
     let pingError: string | null = null;
@@ -78,27 +79,20 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // ── GET /api/sync-state  (load full canvas) ──────────────────────────────
-  // Returns { schema, shapes: Record<id, record>, deleted: string[] }
-  // The client merges this into its local store rather than replacing it.
+  // ── GET /api/sync-state  (load shapes + cursors) ──────────────────────────
   if (req.method === "GET") {
     try {
       const client = await getRedisClient();
-      if (!client) {
-        return res.status(200).json({ status: "empty" });
-      }
+      if (!client) return res.status(200).json({ status: "empty" });
 
-      // Fetch schema + all shape keys in parallel
-      const [schemaStr, shapeKeys, deletedIds] = await Promise.all([
+      const [schemaStr, shapeKeys, deletedIds, cursorKeys] = await Promise.all([
         client.get(SCHEMA_KEY),
         client.keys(SHAPE_PREFIX + "*"),
         client.sMembers(DELETED_SET),
+        client.keys(CURSOR_PREFIX + "*"),
       ]);
 
-      if (!schemaStr && (!shapeKeys || shapeKeys.length === 0)) {
-        return res.status(200).json({ status: "empty" });
-      }
-
+      // shapes
       const shapes: Record<string, any> = {};
       if (shapeKeys && shapeKeys.length > 0) {
         const values: (string | null)[] = await client.mGet(shapeKeys);
@@ -106,17 +100,37 @@ export default async function handler(req: any, res: any) {
           const v = values[i];
           if (v) {
             try {
-              const id = shapeKeys[i].slice(SHAPE_PREFIX.length);
+              const id = (shapeKeys[i] as string).slice(SHAPE_PREFIX.length);
               shapes[id] = JSON.parse(v);
             } catch (_) {}
           }
         }
       }
 
+      // cursors
+      const cursors: Record<string, any> = {};
+      if (cursorKeys && cursorKeys.length > 0) {
+        const vals: (string | null)[] = await client.mGet(cursorKeys);
+        for (let i = 0; i < cursorKeys.length; i++) {
+          const v = vals[i];
+          if (v) {
+            try {
+              const sid = (cursorKeys[i] as string).slice(CURSOR_PREFIX.length);
+              cursors[sid] = JSON.parse(v);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (!schemaStr && Object.keys(shapes).length === 0) {
+        return res.status(200).json({ status: "empty", cursors });
+      }
+
       return res.status(200).json({
         schema: schemaStr ? JSON.parse(schemaStr) : null,
         shapes,
         deleted: deletedIds || [],
+        cursors,
       });
     } catch (error: any) {
       console.error("[api/sync-state] GET error:", error);
@@ -124,45 +138,56 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // ── POST /api/sync-state  (save changed shapes) ──────────────────────────
-  // Body: { schema, upserted: Record<id, record>, deleted: string[] }
-  // Only the changed shapes are written; other users' shapes are untouched.
+  // ── POST /api/sync-state  (save shape diffs + cursor) ────────────────────
   if (req.method === "POST") {
     try {
       const client = await getRedisClient();
-      if (!client) {
-        return res.status(200).json({ success: false, database: "none" });
-      }
+      if (!client) return res.status(200).json({ success: false, database: "none" });
 
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-      const { schema, upserted, deleted } = body as {
-        schema: any;
-        upserted: Record<string, any>;
-        deleted: string[];
+      const {
+        schema,
+        upserted,
+        deleted,
+        cursor, // { sessionId, x, y, color, tool }  — optional
+      } = body as {
+        schema?: any;
+        upserted?: Record<string, any>;
+        deleted?: string[];
+        cursor?: { sessionId: string; x: number; y: number; color: string; tool: string };
       };
 
       const pipeline = client.multi();
 
-      // Always keep schema up to date
       if (schema) {
         pipeline.set(SCHEMA_KEY, JSON.stringify(schema));
       }
 
-      // Write only the shapes that changed
       if (upserted && typeof upserted === "object") {
         for (const [id, record] of Object.entries(upserted)) {
           pipeline.set(SHAPE_PREFIX + id, JSON.stringify(record));
-          // Un-delete if it was previously removed
           pipeline.sRem(DELETED_SET, id);
         }
       }
 
-      // Mark deleted shapes
       if (deleted && deleted.length > 0) {
         for (const id of deleted) {
           pipeline.del(SHAPE_PREFIX + id);
           pipeline.sAdd(DELETED_SET, id);
         }
+      }
+
+      // Store cursor with a TTL so stale cursors auto-expire
+      if (cursor && cursor.sessionId) {
+        const key = CURSOR_PREFIX + cursor.sessionId;
+        pipeline.set(key, JSON.stringify({
+          x: cursor.x,
+          y: cursor.y,
+          color: cursor.color,
+          tool: cursor.tool,
+          ts: Date.now(),
+        }));
+        pipeline.expire(key, CURSOR_TTL);
       }
 
       await pipeline.exec();

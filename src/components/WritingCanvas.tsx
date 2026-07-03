@@ -1,6 +1,143 @@
 import React, { useEffect } from "react";
-import { Tldraw, useEditor, getSnapshot, loadSnapshot, createShapeId } from "tldraw";
+import { Tldraw, useEditor, getSnapshot, createShapeId } from "tldraw";
 import "tldraw/tldraw.css";
+
+// ---------------------------------------------------------------------------
+// Session identity — stable random ID + ink color per browser tab
+// ---------------------------------------------------------------------------
+const SESSION_ID = Math.random().toString(36).slice(2, 11);
+
+// Medieval ink palette — one color assigned per session
+const CURSOR_COLORS = [
+  { name: "Sepia",      hex: "#7a4f2e" },
+  { name: "Vermillion", hex: "#a8251a" },
+  { name: "Verdigris",  hex: "#2e7a5a" },
+  { name: "Ultramarine",hex: "#1a3ca8" },
+  { name: "Oak Gall",   hex: "#3d2b0f" },
+  { name: "Saffron",    hex: "#b8860b" },
+];
+// Deterministically pick a color from the session ID
+const SESSION_COLOR =
+  CURSOR_COLORS[
+    SESSION_ID.split("").reduce((a, c) => a + c.charCodeAt(0), 0) %
+      CURSOR_COLORS.length
+  ];
+
+// ---------------------------------------------------------------------------
+// GhostCursors — renders other users' cursors as medieval quill icons
+// ---------------------------------------------------------------------------
+interface RemoteCursor {
+  sessionId: string;
+  x: number;
+  y: number;
+  color: string;
+  tool: string;
+  ts: number;
+}
+
+function GhostCursors({
+  cursors,
+  mySessionId,
+}: {
+  cursors: Record<string, RemoteCursor>;
+  mySessionId: string;
+}) {
+  const now = Date.now();
+  const entries = Object.entries(cursors).filter(
+    ([sid, c]) =>
+      sid !== mySessionId &&         // not self
+      now - c.ts < 15_000            // seen within 15 s
+  );
+
+  if (entries.length === 0) return null;
+
+  return (
+    <>
+      {entries.map(([sid, c]) => {
+        const age = now - c.ts;
+        // Fade starts at 8 s, reaches 0 at 15 s
+        const opacity = age < 8_000 ? 0.85 : Math.max(0, 0.85 * (1 - (age - 8_000) / 7_000));
+        const isQuill = c.tool === "draw";
+        return (
+          <div
+            key={sid}
+            style={{
+              position: "absolute",
+              left: c.x,
+              top: c.y,
+              pointerEvents: "none",
+              zIndex: 999,
+              opacity,
+              transform: "translate(-2px, -2px)",
+              transition: "left 0.12s linear, top 0.12s linear, opacity 0.6s ease",
+              willChange: "left, top",
+            }}
+          >
+            {/* Quill or cursor SVG */}
+            {isQuill ? (
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }}
+              >
+                {/* Quill feather */}
+                <path
+                  d="M15 2 C12 4 5 10 3 17 L7 13 C8 11 11 8 15 2Z"
+                  fill={c.color}
+                  fillOpacity="0.9"
+                />
+                <path
+                  d="M3 17 L5 14 L7 16Z"
+                  fill={c.color}
+                  fillOpacity="0.7"
+                />
+                {/* Quill tip */}
+                <path
+                  d="M3 17 L2 19"
+                  stroke={c.color}
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }}
+              >
+                <path
+                  d="M2 2 L2 13 L5.5 9.5 L8 14 L9.5 13.3 L7 8.5 L11.5 8.5Z"
+                  fill={c.color}
+                  fillOpacity="0.9"
+                  stroke="#fff"
+                  strokeWidth="0.5"
+                />
+              </svg>
+            )}
+            {/* Color dot below cursor */}
+            <div
+              style={{
+                position: "absolute",
+                top: "18px",
+                left: "4px",
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background: c.color,
+                border: "1.5px solid rgba(255,255,255,0.7)",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              }}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 interface WritingCanvasProps {
   onEditorReady: (editor: any) => void;
@@ -23,49 +160,71 @@ function EditorRefSetter({ onEditorReady }: { onEditorReady: (editor: any) => vo
   return null;
 }
 
-function CommunalSync() {
+// ---------------------------------------------------------------------------
+// CommunalSync — per-shape diff save + merge-only poll + cursor broadcast
+// ---------------------------------------------------------------------------
+function CommunalSync({
+  onCursorsUpdate,
+}: {
+  onCursorsUpdate: (cursors: Record<string, RemoteCursor>) => void;
+}) {
   const editor = useEditor();
   const isInitialLoadCompleteRef = React.useRef(false);
-  const isUpdatingFromServerRef = React.useRef(false);
+  const isUpdatingFromServerRef  = React.useRef(false);
 
-  // Track which shape IDs we've sent so we can detect deletions.
+  // Tracking maps for diff saves
   const knownShapeIdsRef = React.useRef<Set<string>>(new Set());
-  // Track the last-seen serialized value per shape ID so we only send diffs.
-  const lastSentRef = React.useRef<Record<string, string>>({});
+  const lastSentRef      = React.useRef<Record<string, string>>({});
+
+  // Cursor state
+  const lastCursorRef    = React.useRef<{ x: number; y: number } | null>(null);
+  const isTouchRef       = React.useRef(false);
 
   useEffect(() => {
+    // ── Helpers ─────────────────────────────────────────────────────────────
     const isShapeRecord = (r: any) =>
       r && (r.typeName === "shape" || r.typeName === "asset");
+
+    const getStoreAndSchema = (snapshot: any) => {
+      if (!snapshot) return { store: {}, schema: null };
+      // tldraw v5 wraps in { document: { store, schema }, session }
+      if (snapshot.document?.store) {
+        return { store: snapshot.document.store, schema: snapshot.document.schema ?? null };
+      }
+      return { store: snapshot.store ?? {}, schema: snapshot.schema ?? null };
+    };
 
     // ── Initial load ────────────────────────────────────────────────────────
     const loadState = async () => {
       try {
-        const response = await fetch("/api/sync-state");
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data.status === "empty" || !data.shapes) return;
+        const res = await fetch("/api/sync-state");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === "empty") {
+          // Still update cursors even when canvas is empty
+          if (data.cursors) onCursorsUpdate(data.cursors);
+          return;
+        }
 
-        const { shapes, deleted } = data as {
+        const { shapes = {}, deleted = [], cursors = {} } = data as {
           shapes: Record<string, any>;
           deleted: string[];
+          cursors: Record<string, any>;
         };
 
         isUpdatingFromServerRef.current = true;
 
-        // Apply all remote shapes that differ from local
-        const toPut = Object.values(shapes).filter((r) => isShapeRecord(r));
+        const toPut = Object.values(shapes).filter(isShapeRecord);
         if (toPut.length > 0) editor.store.put(toPut);
 
-        // Remove any shapes the server says were deleted
-        const toRemove = (deleted || []).filter((id) => {
+        const toRemove = (deleted as string[]).filter((id) => {
           const r = editor.store.get(id as any);
           return r && isShapeRecord(r);
         });
         if (toRemove.length > 0) editor.store.remove(toRemove as any[]);
 
-        // Seed our tracking maps from what's now in the store
-        const snapshot = getSnapshot(editor.store) as any;
-        const store = snapshot?.document?.store || snapshot?.store || {};
+        // Seed tracking maps so first poll doesn't re-apply everything
+        const { store } = getStoreAndSchema(getSnapshot(editor.store));
         for (const [id, record] of Object.entries(store)) {
           if (isShapeRecord(record)) {
             knownShapeIdsRef.current.add(id);
@@ -74,6 +233,7 @@ function CommunalSync() {
         }
 
         isUpdatingFromServerRef.current = false;
+        onCursorsUpdate(cursors);
       } catch (err) {
         console.error("[CommunalSync] loadState error:", err);
         isUpdatingFromServerRef.current = false;
@@ -85,20 +245,16 @@ function CommunalSync() {
     loadState();
 
     // ── Save: only the diff ─────────────────────────────────────────────────
-    // Collects changed/added/removed shapes since the last save and sends only
-    // those keys. Other users' shapes in Redis are never touched.
     let saveTimeout: any = null;
 
-    const saveState = async () => {
+    const saveState = async (cursorPayload?: { x: number; y: number; tool: string }) => {
       try {
-        const snapshot = getSnapshot(editor.store) as any;
-        const store = snapshot?.document?.store || snapshot?.store || {};
-        const schema = snapshot?.document?.schema || snapshot?.schema;
+        const snapshot = getSnapshot(editor.store);
+        const { store, schema } = getStoreAndSchema(snapshot);
 
         const upserted: Record<string, any> = {};
-        const deleted: string[] = [];
+        const deletedIds: string[] = [];
 
-        // Find added / changed shapes
         for (const [id, record] of Object.entries(store)) {
           if (!isShapeRecord(record)) continue;
           const serialized = JSON.stringify(record);
@@ -109,28 +265,39 @@ function CommunalSync() {
           }
         }
 
-        // Find deleted shapes (were known, now gone)
-        for (const id of knownShapeIdsRef.current) {
+        for (const id of Array.from(knownShapeIdsRef.current)) {
           if (!store[id]) {
-            deleted.push(id);
+            deletedIds.push(id);
             knownShapeIdsRef.current.delete(id);
             delete lastSentRef.current[id];
           }
         }
 
-        if (Object.keys(upserted).length === 0 && deleted.length === 0) return;
+        // Always send cursor if provided; skip network if nothing changed
+        if (Object.keys(upserted).length === 0 && deletedIds.length === 0 && !cursorPayload) return;
+
+        const body: any = { schema, upserted, deleted: deletedIds };
+        if (cursorPayload) {
+          body.cursor = {
+            sessionId: SESSION_ID,
+            x: cursorPayload.x,
+            y: cursorPayload.y,
+            color: SESSION_COLOR.hex,
+            tool: cursorPayload.tool,
+          };
+        }
 
         await fetch("/api/sync-state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ schema, upserted, deleted }),
+          body: JSON.stringify(body),
         });
       } catch (err) {
         console.error("[CommunalSync] saveState error:", err);
       }
     };
 
-    // Listen for any local store changes and debounce the save
+    // ── Store listener — debounced shape save ───────────────────────────────
     const unsubscribe = editor.store.listen((entry) => {
       if (isUpdatingFromServerRef.current) return;
       if (!isInitialLoadCompleteRef.current) return;
@@ -158,61 +325,94 @@ function CommunalSync() {
 
       if (hasShapeChange) {
         if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(saveState, 400);
+        saveTimeout = setTimeout(() => saveState(), 400);
       }
     });
 
-    // ── Poll: merge-in remote changes every 2 seconds ───────────────────────
-    // Because saves are now per-shape, polling can always apply remote shapes
-    // without fear of overwriting local ones — it only adds/updates shapes
-    // that differ from local, and removes shapes the server marked deleted.
-    // The pointer-down guard is removed so updates appear while drawing.
+    // ── Cursor tracking — desktop only (skip touch devices) ─────────────────
+    const handlePointerMove = (e: PointerEvent) => {
+      // Only track mouse cursors, not touch
+      if (e.pointerType === "touch") { isTouchRef.current = true; return; }
+      if (!isInitialLoadCompleteRef.current) return;
+
+      // Map screen coords to canvas coords
+      const container = document.getElementById("sheet");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      lastCursorRef.current = { x, y };
+    };
+
+    // Broadcast cursor position periodically (separate cadence from shape poll)
+    const cursorBroadcastInterval = setInterval(() => {
+      if (!isInitialLoadCompleteRef.current) return;
+      if (isTouchRef.current) return; // never broadcast on touch
+      if (!lastCursorRef.current) return;
+      const { x, y } = lastCursorRef.current;
+      const tool = (() => { try { return editor.getCurrentToolId() ?? "draw"; } catch { return "draw"; } })();
+      saveState({ x, y, tool });
+    }, 1200);
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+
+    // ── Poll: merge remote shapes + refresh cursors every 2 s ───────────────
     const pollInterval = setInterval(async () => {
       if (isUpdatingFromServerRef.current) return;
       if (!isInitialLoadCompleteRef.current) return;
 
       try {
-        const response = await fetch("/api/sync-state");
-        if (!response.ok) return;
-        const data = await response.json();
+        const res = await fetch("/api/sync-state");
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Always update cursors
+        if (data.cursors) onCursorsUpdate(data.cursors);
+
         if (data.status === "empty" || !data.shapes) return;
 
-        const { shapes, deleted } = data as {
+        const { shapes = {}, deleted = [] } = data as {
           shapes: Record<string, any>;
           deleted: string[];
         };
 
-        const snapshot = getSnapshot(editor.store) as any;
-        const localStore = snapshot?.document?.store || snapshot?.store || {};
+        const { store: localStore } = getStoreAndSchema(getSnapshot(editor.store));
 
         const toPut: any[] = [];
         for (const [id, remoteRecord] of Object.entries(shapes)) {
           if (!isShapeRecord(remoteRecord)) continue;
-          const localRecord = localStore[id];
-          // Only apply if the remote version differs from what we last sent
-          // (i.e. it came from someone else) and differs from local
           const remoteSerialized = JSON.stringify(remoteRecord);
+          // Apply if: not something we sent ourselves AND differs from local
           if (
             lastSentRef.current[id] !== remoteSerialized &&
-            JSON.stringify(localRecord) !== remoteSerialized
+            JSON.stringify(localStore[id]) !== remoteSerialized
           ) {
             toPut.push(remoteRecord);
           }
         }
 
-        const toRemove = (deleted || []).filter((id) => {
-          // Only remove if we didn't delete it ourselves (already gone from lastSent)
-          return lastSentRef.current[id] !== undefined && !knownShapeIdsRef.current.has(id) === false && localStore[id];
-        });
+        // FIX: correct deletion filter — remove locally if server deleted it
+        // and we didn't delete it ourselves (i.e. it's still in our known set)
+        const toRemove = (deleted as string[]).filter(
+          (id) =>
+            knownShapeIdsRef.current.has(id) &&   // we still think it exists
+            localStore[id] !== undefined           // and it's actually in local store
+        );
 
         if (toPut.length > 0 || toRemove.length > 0) {
           isUpdatingFromServerRef.current = true;
           if (toPut.length > 0) editor.store.put(toPut);
-          if (toRemove.length > 0) editor.store.remove(toRemove as any[]);
+          if (toRemove.length > 0) {
+            editor.store.remove(toRemove as any[]);
+            // Sync our tracking maps
+            for (const id of toRemove) {
+              knownShapeIdsRef.current.delete(id);
+              delete lastSentRef.current[id];
+            }
+          }
           isUpdatingFromServerRef.current = false;
         }
       } catch (_) {
-        // Fail silently during background polling
         isUpdatingFromServerRef.current = false;
       }
     }, 2000);
@@ -221,8 +421,10 @@ function CommunalSync() {
       unsubscribe();
       if (saveTimeout) clearTimeout(saveTimeout);
       clearInterval(pollInterval);
+      clearInterval(cursorBroadcastInterval);
+      window.removeEventListener("pointermove", handlePointerMove);
     };
-  }, [editor]);
+  }, [editor, onCursorsUpdate]);
 
   return null;
 }
@@ -468,13 +670,18 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [editor, setEditor] = React.useState<any>(null);
   const [pointer, setPointer] = React.useState<PointerState | null>(null);
+  const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});
 
   const handleEditorReady = (ed: any) => {
     setEditor(ed);
-    if (onEditorReady) {
-      onEditorReady(ed);
-    }
+    if (onEditorReady) onEditorReady(ed);
   };
+
+  // Stable callback reference so CommunalSync effect doesn't re-run
+  const handleCursorsUpdate = React.useCallback(
+    (cursors: Record<string, RemoteCursor>) => setRemoteCursors(cursors),
+    []
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -629,10 +836,13 @@ export default function WritingCanvas({ onEditorReady, isMagnifierActive = false
         hideUi={true}
       >
         <EditorRefSetter onEditorReady={handleEditorReady} />
-        <CommunalSync />
+        <CommunalSync onCursorsUpdate={handleCursorsUpdate} />
         <CameraLock />
         <ScrollBoundsUpdater />
       </Tldraw>
+
+      {/* Ghost cursors — desktop only, rendered over the canvas */}
+      <GhostCursors cursors={remoteCursors} mySessionId={SESSION_ID} />
 
       {isMagnifierActive && pointer && pointer.isDown && (
         <MagnifierOverlay pointer={pointer} editor={editor} />

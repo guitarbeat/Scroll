@@ -696,6 +696,10 @@ export default function App() {
         className={`transition-all duration-700 tool-${currentTool} ${
           isOpened ? "opacity-100" : "opacity-0"
         } ${isOpeningRig ? "open" : ""}`}
+        style={{
+          transform: `translate(-50%, -50%) scale(${rigScale})`,
+          transformOrigin: "center center",
+        }}
       >
         {/* Top Roller */}
         <div

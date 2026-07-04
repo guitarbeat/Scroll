@@ -1,9 +1,10 @@
 import dotenv from "dotenv";
-dotenv.config({ override: true });
+dotenv.config();
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { createClient } from "redis";
+import Ably from "ably";
 
 let redisClient: any = null;
 let isConnecting = false;
@@ -116,6 +117,32 @@ async function startServer() {
     } catch (error: any) {
       console.error("[Server] Error saving canvas state:", error);
       res.json({ success: false, error: error.message });
+    }
+  });
+
+  // API to mint Ably tokens for client-side realtime features
+  app.all("/api/ably-token", async (req, res) => {
+    const apiKey = process.env.ABLY_API_KEY;
+    if (!apiKey) {
+      console.warn("[Server] ABLY_API_KEY is not configured.");
+      return res.status(500).json({ error: "ABLY_API_KEY not configured" });
+    }
+
+    try {
+      const rest = new Ably.Rest(apiKey);
+      const clientId = req.query?.clientId || req.body?.clientId || `anon-${Date.now()}`;
+      const tokenRequest = await rest.auth.createTokenRequest({
+        clientId: String(clientId),
+        capability: {
+          "scroll:shapes":  ["publish", "subscribe", "history"],
+          "scroll:cursors": ["publish", "subscribe", "presence"],
+        },
+        ttl: 3_600_000, // 1 hour
+      });
+      res.json(tokenRequest);
+    } catch (err: any) {
+      console.error("[Server] Error creating Ably token request:", err);
+      res.status(500).json({ error: err.message });
     }
   });
 

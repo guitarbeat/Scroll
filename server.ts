@@ -4,6 +4,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import Ably from "ably";
+import syncStateHandler from "./api/sync-state.js";
 
 async function startServer() {
   const app = express();
@@ -13,14 +14,8 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // API to fetch diagnostic info about state syncing
-  app.get("/api/sync-state", (req, res) => {
-    res.json({
-      status: "empty",
-      info: "State synchronization is managed completely client-to-client via Ably History.",
-      isKvConfigured: false,
-    });
-  });
+  // API to handle client-side database synchronization (Redis/KV)
+  app.all("/api/sync-state", syncStateHandler);
 
   // API to mint Ably tokens for client-side realtime features
   app.all("/api/ably-token", async (req, res) => {

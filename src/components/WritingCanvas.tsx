@@ -209,7 +209,7 @@ function CommunalSync({
     const shapesChannel  = ably.channels.get("scroll:shapes");
     const cursorsChannel = ably.channels.get("scroll:cursors");
 
-    // ── Step 2: Load full state from Ably History (replaying the stroke delta log) ──
+    // ── Step 2: Load full state from durable Redis DB & Ably History (replaying the stroke delta log) ──
     const loadFromAblyHistory = async () => {
       try {
         isApplyingRemoteRef.current = true;
@@ -217,37 +217,65 @@ function CommunalSync({
         const accumulatedShapes: Record<string, any> = {};
         const accumulatedDeleted: Set<string> = new Set();
 
-        // Retrieve all pages of history sequentially in chronological order (oldest to newest)
-        let historyPage = await shapesChannel.history({ limit: 100, direction: "forwards" });
-
-        while (historyPage) {
-          const items = historyPage.items || [];
-          for (const msg of items) {
-            if (msg.name === "delta" && msg.data) {
-              const { upserted = {}, deleted = [] } = msg.data as {
-                upserted: Record<string, any>;
-                deleted: string[];
-              };
-
-              for (const [id, record] of Object.entries(upserted)) {
+        // 1. Fetch durable cloud state from Redis (Upstash/Vercel KV)
+        try {
+          const res = await fetch("/api/sync-state");
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.shapes) {
+              for (const [id, record] of Object.entries(data.shapes)) {
                 if (isShapeRecord(record)) {
                   accumulatedShapes[id] = record;
-                  accumulatedDeleted.delete(id);
                 }
               }
-
-              for (const id of deleted) {
-                delete accumulatedShapes[id];
+            }
+            if (data && data.deleted) {
+              for (const id of data.deleted) {
                 accumulatedDeleted.add(id);
+                delete accumulatedShapes[id];
               }
             }
           }
+        } catch (err) {
+          console.warn("[CommunalSync] Failed to load from Redis, falling back to Ably:", err);
+        }
 
-          if (historyPage.hasNext?.()) {
-            historyPage = await historyPage.next();
-          } else {
-            break;
+        // 2. Retrieve recent pages of Ably history sequentially in chronological order (oldest to newest)
+        // to catch any very recent changes that might not have been flushed to Redis yet.
+        try {
+          let historyPage = await shapesChannel.history({ limit: 100, direction: "forwards" });
+
+          while (historyPage) {
+            const items = historyPage.items || [];
+            for (const msg of items) {
+              if (msg.name === "delta" && msg.data) {
+                const { upserted = {}, deleted = [] } = msg.data as {
+                  upserted: Record<string, any>;
+                  deleted: string[];
+                };
+
+                for (const [id, record] of Object.entries(upserted)) {
+                  if (isShapeRecord(record)) {
+                    accumulatedShapes[id] = record;
+                    accumulatedDeleted.delete(id);
+                  }
+                }
+
+                for (const id of deleted) {
+                  delete accumulatedShapes[id];
+                  accumulatedDeleted.add(id);
+                }
+              }
+            }
+
+            if (historyPage.hasNext?.()) {
+              historyPage = await historyPage.next();
+            } else {
+              break;
+            }
           }
+        } catch (err) {
+          console.warn("[CommunalSync] Ably history fetch failed:", err);
         }
 
         const toPut = Object.values(accumulatedShapes);
@@ -352,6 +380,21 @@ function CommunalSync({
 
       // Publish via Ably (instant broadcast to all connected clients)
       shapesChannel.publish("delta", { upserted, deleted: deletedIds });
+
+      // Save to Redis (durable cloud storage)
+      try {
+        await fetch("/api/sync-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schema,
+            upserted,
+            deleted: deletedIds,
+          }),
+        });
+      } catch (err) {
+        console.error("[CommunalSync] Failed to persist state to Redis:", err);
+      }
     };
 
     const unsubscribeStore = editor.store.listen((entry: any) => {
@@ -777,7 +820,11 @@ function Loupe({ stateRef }: { stateRef: React.MutableRefObject<LoupeState> }) {
 // ---------------------------------------------------------------------------
 // WritingCanvas — main export
 // ---------------------------------------------------------------------------
-export default function WritingCanvas({ onEditorReady, userZoom, setUserZoom }: WritingCanvasProps) {
+export default function WritingCanvas({
+  onEditorReady,
+  userZoom,
+  setUserZoom,
+}: WritingCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [editor, setEditor] = React.useState<any>(null);
   const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});
@@ -1047,7 +1094,9 @@ export default function WritingCanvas({ onEditorReady, userZoom, setUserZoom }: 
         hideUi={true}
       >
         <EditorRefSetter onEditorReady={handleEditorReady} />
-        <CommunalSync onCursorsUpdate={handleCursorsUpdate} />
+        <CommunalSync
+          onCursorsUpdate={handleCursorsUpdate}
+        />
         <CameraLock userZoom={userZoom} />
         <ScrollBoundsUpdater />
       </Tldraw>

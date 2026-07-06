@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { DefaultColorStyle } from "tldraw";
-import { Feather, Eraser, Undo2, Type } from "lucide-react";
+import { Feather, Eraser, Undo2, Redo2, Type } from "lucide-react";
 
 interface MedievalToolbarProps {
   editor: any;
@@ -13,14 +13,20 @@ const TOOL_LABELS: Record<string, string> = {
   eraser: "Tap or drag to erase",
 };
 
-export default function MedievalToolbar({ editor }: MedievalToolbarProps) {
+export default function MedievalToolbar({
+  editor,
+}: MedievalToolbarProps) {
   const [currentTool, setCurrentTool] = useState("draw");
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   useEffect(() => {
     if (!editor) return;
     const update = () => {
       const tool = editor.getCurrentToolId?.() ?? "draw";
       setCurrentTool(tool);
+      setCanUndo(editor.getCanUndo?.() ?? false);
+      setCanRedo(editor.getCanRedo?.() ?? false);
     };
     const cleanup = editor.store.listen(update);
     update();
@@ -105,15 +111,34 @@ export default function MedievalToolbar({ editor }: MedievalToolbarProps) {
 
         {divider}
 
-        {/* Undo */}
-        <button
-          onClick={() => editor.undo()}
-          aria-label="Undo"
-          style={{ width: 44, height: 44, minWidth: 44, minHeight: 44 }}
-          className="flex items-center justify-center rounded-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] active:scale-90 transition-all shrink-0 cursor-pointer"
-        >
-          <Undo2 className="w-3.5 h-3.5" />
-        </button>
+        {/* Unified Temporal Controls (Undo & Redo) */}
+        <div className="flex items-center bg-[#cca162]/5 border border-[#cca162]/20 rounded-full p-[2px] h-11 shrink-0">
+          {/* Undo Part */}
+          <button
+            onClick={() => editor.undo()}
+            disabled={!canUndo}
+            aria-label="Undo"
+            title="Undo last stroke"
+            style={{ width: 40, height: 40 }}
+            className="flex items-center justify-center rounded-l-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="w-[1px] h-5 bg-[#cca162]/20 self-center" />
+
+          {/* Redo Part */}
+          <button
+            onClick={() => editor.redo()}
+            disabled={!canRedo}
+            aria-label="Redo"
+            title="Redo next stroke"
+            style={{ width: 40, height: 40 }}
+            className="flex items-center justify-center rounded-r-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          >
+            <Redo2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,0 +1,8 @@
+{
+  "name": "Scriptorium",
+  "description": "A collaborative medieval-themed canvas for scroll scribing and sketching, integrated with real-time parchment simulations and Ably synchronizations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

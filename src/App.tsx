@@ -52,6 +52,7 @@ export default function App() {
   const [showScrollPrompt, setShowScrollPrompt] = useState(false);
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
+  const [userZoom, setUserZoom] = useState(1);
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
@@ -60,12 +61,15 @@ export default function App() {
 
   const getTargetViewport = () => {
     if (typeof window === "undefined") return 600;
-    const rem     = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+    
+    // Estimate roller height without slow getComputedStyle layout queries.
+    // Falls back to direct measurement if element is available, otherwise uses equivalent math.
+    const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, window.innerWidth * 0.08), 58);
+    
     // Toolbar sits at the bottom: ~56px tall + 20px bottom margin + up to 34px safe-area = ~110px.
     // The rig is vertically centered, so the effective usable height for the rig is:
     //   viewport height - toolbar footprint
-    // We use 88% of that remaining space so there's a small visual margin top and bottom.
+    // We use 94% of that remaining space so there's a small visual margin top and bottom.
     const toolbarFootprint = 110;
     const usable = (window.innerHeight - toolbarFootprint) * 0.94;
     // Subtract both rollers so the parchment itself fits within usable.
@@ -124,8 +128,7 @@ export default function App() {
   useEffect(() => {
     const handleResize = () => {
       const vh  = window.innerHeight;
-      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-      const rollerH = Math.min(Math.max(1.5 * rem, 0.08 * window.innerWidth), 3.625 * rem);
+      const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, window.innerWidth * 0.08), 58);
       const target  = getTargetViewport();
       const totalH  = target + rollerH * 2;
       // Never scale up; only pull down when it would overflow vertically.
@@ -702,11 +705,11 @@ export default function App() {
       {/* ======= THE SCROLL ======= */}
       <div
         id="rig"
-        className={`transition-all duration-700 tool-${currentTool} ${
+        className={`transition-opacity duration-700 tool-${currentTool} ${
           isOpened ? "opacity-100" : "opacity-0"
         } ${isOpeningRig ? "open" : ""}`}
         style={{
-          transform: `translate(-50%, -50%) scale(${rigScale})`,
+          transform: `translate(-50%, -50%) scale(${rigScale * userZoom})`,
           transformOrigin: "center center",
         }}
       >
@@ -803,16 +806,14 @@ export default function App() {
                 </footer>
               </div>
 
-            {/* Writing Canvas — inset to match the parchment's own padding exactly */}
+            {/* Writing Canvas — covers the entire parchment and clips exactly to the tattered edge */}
             <div 
-              className="absolute top-[64px] bottom-[120px] z-10 pointer-events-auto touch-none select-none overflow-hidden"
-              style={{
-                left: "var(--sheet-padding-x)",
-                right: "var(--sheet-padding-x)"
-              }}
+              className="absolute inset-0 z-10 pointer-events-auto touch-none select-none overflow-hidden torn"
             >
               <WritingCanvas 
                 onEditorReady={setEditor} 
+                userZoom={userZoom}
+                setUserZoom={setUserZoom}
               />
             </div>
           </div>

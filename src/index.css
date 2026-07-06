@@ -25,6 +25,7 @@
   :root {
     --sheet-padding-x: 2.25rem;
     --rig-width: calc(100% - 8rem);
+    --handle-base-size: 0.75rem;
   }
 }
 
@@ -32,6 +33,7 @@
   :root {
     --sheet-padding-x: 1.25rem;
     --rig-width: calc(100% - 5.5rem);
+    --handle-base-size: 0.5rem;
   }
 }
 
@@ -992,3 +994,16 @@ body {
 #medieval-toolbar {
   bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
 }
+
+/* Safe-area-aware loupe positioning classes */
+.loupe-pos-left {
+  left: calc(1rem + env(safe-area-inset-left, 0px)) !important;
+  right: auto !important;
+  top: calc(1rem + env(safe-area-inset-top, 0px)) !important;
+}
+.loupe-pos-right {
+  left: auto !important;
+  right: calc(1rem + env(safe-area-inset-right, 0px)) !important;
+  top: calc(1rem + env(safe-area-inset-top, 0px)) !important;
+}
+

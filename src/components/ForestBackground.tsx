@@ -11,36 +11,13 @@ export default function ForestBackground() {
     let scrollY = 0;
     let mouseX = 0; // -1 to 1
     let mouseY = 0; // -1 to 1
-
-    const handleScroll = (e: Event) => {
-      const target = e.target as HTMLElement;
-      if (target && target.id === "sheetWrap") {
-        scrollY = target.scrollTop;
-      } else {
-        scrollY = window.scrollY;
-      }
-      updateParallax();
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      // Normalize to [-1, 1]
-      mouseX = (e.clientX - w / 2) / (w / 2);
-      mouseY = (e.clientY - h / 2) / (h / 2);
-      updateParallax();
-    };
+    let pendingFrame: number | null = null;
 
     const updateParallax = () => {
       // Limit background vertical movement to 120px so trees always stay in frame
       const dampedScroll = Math.min(scrollY * 0.15, 120);
 
       // Parallax ratios for depth layers
-      // Layer 5 (furthest): scrolls 70% speed, mouse moves +25px
-      // Layer 4 (mid): scrolls 55% speed, mouse moves -18px
-      // Layer 3 (mid mist): scrolls 40% speed, mouse moves +8px
-      // Layer 2 (top trees): scrolls 25% speed, mouse moves +12px
-      // Layer 1 (front mist): scrolls 10% speed, mouse moves +5px
       const t1 = `translate(${mouseX * 5}px, ${-dampedScroll * 0.1 + mouseY * 5}px)`;
       const t2 = `translate(${mouseX * 12}px, ${-dampedScroll * 0.25 + mouseY * 12}px)`;
       const t3 = `translate(${mouseX * 8}px, ${-dampedScroll * 0.4 + mouseY * 8}px)`;
@@ -54,6 +31,33 @@ export default function ForestBackground() {
       if (fiveRef.current) fiveRef.current.style.transform = t5;
     };
 
+    const requestUpdate = () => {
+      if (pendingFrame !== null) return;
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        updateParallax();
+      });
+    };
+
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target && target.id === "sheetWrap") {
+        scrollY = target.scrollTop;
+      } else {
+        scrollY = window.scrollY;
+      }
+      requestUpdate();
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      // Normalize to [-1, 1]
+      mouseX = (e.clientX - w / 2) / (w / 2);
+      mouseY = (e.clientY - h / 2) / (h / 2);
+      requestUpdate();
+    };
+
     // Use capturing to listen to scroll events inside sheetWrap as well
     window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
@@ -64,6 +68,9 @@ export default function ForestBackground() {
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
       window.removeEventListener("mousemove", handleMouseMove);
+      if (pendingFrame !== null) {
+        cancelAnimationFrame(pendingFrame);
+      }
     };
   }, []);
 

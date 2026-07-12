@@ -455,39 +455,53 @@ export default function App() {
 
   // Scoped window-level pointer move, up and cancel event bindings
   useEffect(() => {
+    let movePendingFrame: number | null = null;
+    let latestPointerEvent: PointerEvent | null = null;
+
     const handlePointerMove = (e: PointerEvent) => {
-      if (isDraggingRef.current) {
-        // ---- Scroll Dragging ----
-        const currentY = e.clientY;
-        const now = performance.now();
-        const dt = now - lastTimeRef.current;
+      if (!isDraggingRef.current && !isUnrollDraggingRef.current) return;
+      latestPointerEvent = e;
 
-        const deltaY = currentY - startYRef.current;
-        if (sheetWrapRef.current) {
-          sheetWrapRef.current.scrollTop = startScrollYRef.current - deltaY;
-        }
+      if (movePendingFrame !== null) return;
 
-        if (dt > 0) {
-          velocityRef.current = -(currentY - lastYRef.current) / dt;
-        }
+      movePendingFrame = requestAnimationFrame(() => {
+        movePendingFrame = null;
+        if (!latestPointerEvent) return;
 
-        lastYRef.current = currentY;
-        lastTimeRef.current = now;
-      } else if (isUnrollDraggingRef.current) {
-        // ---- Unroll Pulling ----
-        const deltaY = e.clientY - unrollStartYRef.current;
-        if (deltaY > 0) {
-          currentUnrollHeightRef.current = Math.min(deltaY, 150);
-          setSheetMaxHeight(`${currentUnrollHeightRef.current}px`);
+        const ev = latestPointerEvent;
+        if (isDraggingRef.current) {
+          // ---- Scroll Dragging ----
+          const currentY = ev.clientY;
+          const now = performance.now();
+          const dt = now - lastTimeRef.current;
 
-          const sealSceneEl = document.getElementById("sealScene");
-          if (sealSceneEl) {
-            sealSceneEl.style.transform = `translateY(${currentUnrollHeightRef.current * 0.4}px)`;
+          const deltaY = currentY - startYRef.current;
+          if (sheetWrapRef.current) {
+            sheetWrapRef.current.scrollTop = startScrollYRef.current - deltaY;
           }
-        } else {
-          setSheetMaxHeight("0px");
+
+          if (dt > 0) {
+            velocityRef.current = -(currentY - lastYRef.current) / dt;
+          }
+
+          lastYRef.current = currentY;
+          lastTimeRef.current = now;
+        } else if (isUnrollDraggingRef.current) {
+          // ---- Unroll Pulling ----
+          const deltaY = ev.clientY - unrollStartYRef.current;
+          if (deltaY > 0) {
+            currentUnrollHeightRef.current = Math.min(deltaY, 150);
+            setSheetMaxHeight(`${currentUnrollHeightRef.current}px`);
+
+            const sealSceneEl = document.getElementById("sealScene");
+            if (sealSceneEl) {
+              sealSceneEl.style.transform = `translateY(${currentUnrollHeightRef.current * 0.4}px)`;
+            }
+          } else {
+            setSheetMaxHeight("0px");
+          }
         }
-      }
+      });
     };
 
     const animateInertia = () => {
@@ -566,6 +580,9 @@ export default function App() {
       if (inertiaFrameRef.current) {
         cancelAnimationFrame(inertiaFrameRef.current);
       }
+      if (movePendingFrame !== null) {
+        cancelAnimationFrame(movePendingFrame);
+      }
     };
   }, [isOpened, sealCracked]);
 
@@ -584,22 +601,56 @@ export default function App() {
   useEffect(() => {
     if (!isOpened) return;
 
+    let cachedRect: DOMRect | null = null;
+    let pendingFrame: number | null = null;
+    let lastEvent: PointerEvent | null = null;
+
     const handlePointerMove = (e: PointerEvent) => {
-      const sheet = document.getElementById("sheet");
-      if (!sheet) return;
-      const rect = sheet.getBoundingClientRect();
-      
-      // Calculate cursor position relative to the sheet in percentage
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-      
-      sheet.style.setProperty("--candle-x", `${x}%`);
-      sheet.style.setProperty("--candle-y", `${y}%`);
+      lastEvent = e;
+      if (pendingFrame !== null) return;
+
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        if (!lastEvent) return;
+
+        const sheet = document.getElementById("sheet");
+        if (!sheet) return;
+
+        if (!cachedRect) {
+          cachedRect = sheet.getBoundingClientRect();
+        }
+
+        const rect = cachedRect;
+        // Calculate cursor position relative to the sheet in percentage
+        const x = ((lastEvent.clientX - rect.left) / rect.width) * 100;
+        const y = ((lastEvent.clientY - rect.top) / rect.height) * 100;
+
+        sheet.style.setProperty("--candle-x", `${x}%`);
+        sheet.style.setProperty("--candle-y", `${y}%`);
+      });
+    };
+
+    const handleScrollOrResize = () => {
+      cachedRect = null; // Invalidate cached rect
     };
 
     window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("resize", handleScrollOrResize, { passive: true });
+
+    const sheetWrap = document.getElementById("sheetWrap");
+    if (sheetWrap) {
+      sheetWrap.addEventListener("scroll", handleScrollOrResize, { passive: true });
+    }
+
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("resize", handleScrollOrResize);
+      if (sheetWrap) {
+        sheetWrap.removeEventListener("scroll", handleScrollOrResize);
+      }
+      if (pendingFrame !== null) {
+        cancelAnimationFrame(pendingFrame);
+      }
     };
   }, [isOpened]);
 

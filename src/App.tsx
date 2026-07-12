@@ -792,14 +792,14 @@ export default function App() {
                   <div className="mt-2 flex justify-center">
                     <button
                       onClick={reroll}
-                      className="group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8a1f14] rounded-full transition-transform active:scale-95 hover:scale-105 relative z-30"
+                      className="group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8a1f14] rounded-full transition-transform active:scale-95 hover:scale-105 relative z-30 shadow-md"
                       aria-label="Roll the scroll again"
                     >
                       <img
                         src="/stamp.png"
                         alt="Wax Seal"
                         referrerPolicy="no-referrer"
-                        className="w-24 h-24 object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.4)] transition-all group-hover:brightness-110"
+                        className="w-24 h-24 object-contain transition-all group-hover:brightness-110"
                       />
                     </button>
                   </div>

@@ -188,8 +188,15 @@ function CommunalSync({
   const editor = useEditor();
   const isInitialLoadDoneRef  = React.useRef(false);
   const isApplyingRemoteRef   = React.useRef(false);
-  const knownShapeIdsRef      = React.useRef<Set<string>>(new Set());
-  const lastSentRef           = React.useRef<Record<string, string>>({});
+
+  // Ably shapes tracking
+  const knownAblyShapeIdsRef  = React.useRef<Set<string>>(new Set());
+  const lastSentAblyRef       = React.useRef<Record<string, string>>({});
+
+  // Redis save tracking
+  const knownRedisShapeIdsRef = React.useRef<Set<string>>(new Set());
+  const lastSavedRedisRef     = React.useRef<Record<string, string>>({});
+
   const isTouchDeviceRef      = React.useRef(false);
   const cursorThrottleRef     = React.useRef(0);
 
@@ -295,8 +302,12 @@ function CommunalSync({
         const { store } = getStoreAndSchema(getSnapshot(editor.store));
         for (const [id, record] of Object.entries(store)) {
           if (isShapeRecord(record)) {
-            knownShapeIdsRef.current.add(id);
-            lastSentRef.current[id] = JSON.stringify(record);
+            const serialized = JSON.stringify(record);
+            knownAblyShapeIdsRef.current.add(id);
+            lastSentAblyRef.current[id] = serialized;
+
+            knownRedisShapeIdsRef.current.add(id);
+            lastSavedRedisRef.current[id] = serialized;
           }
         }
         isApplyingRemoteRef.current = false;
@@ -320,11 +331,11 @@ function CommunalSync({
       // Only apply shapes that weren't sent by us
       const filtered = toPut.filter((r: any) => {
         const serialized = JSON.stringify(r);
-        return lastSentRef.current[r.id] !== serialized;
+        return lastSentAblyRef.current[r.id] !== serialized;
       });
 
       const toRemove = (deleted as string[]).filter(
-        (id) => knownShapeIdsRef.current.has(id) &&
+        (id) => knownAblyShapeIdsRef.current.has(id) &&
           editor.store.get(id as any) !== undefined
       );
 
@@ -334,15 +345,22 @@ function CommunalSync({
       if (filtered.length > 0) {
         editor.store.put(filtered);
         for (const r of filtered) {
-          knownShapeIdsRef.current.add(r.id);
-          lastSentRef.current[r.id] = JSON.stringify(r);
+          const serialized = JSON.stringify(r);
+          knownAblyShapeIdsRef.current.add(r.id);
+          lastSentAblyRef.current[r.id] = serialized;
+
+          knownRedisShapeIdsRef.current.add(r.id);
+          lastSavedRedisRef.current[r.id] = serialized;
         }
       }
       if (toRemove.length > 0) {
         editor.store.remove(toRemove as any[]);
         for (const id of toRemove) {
-          knownShapeIdsRef.current.delete(id);
-          delete lastSentRef.current[id];
+          knownAblyShapeIdsRef.current.delete(id);
+          delete lastSentAblyRef.current[id];
+
+          knownRedisShapeIdsRef.current.delete(id);
+          delete lastSavedRedisRef.current[id];
         }
       }
       isApplyingRemoteRef.current = false;
@@ -351,8 +369,42 @@ function CommunalSync({
     shapesChannel.subscribe("delta", onShapeDelta);
 
     // ── shapes: publish our own diffs ────────────────────────────────────────
-    let saveTimeout: any = null;
-    const publishDiff = async () => {
+    let publishAblyTimeout: any = null;
+    let saveRedisTimeout: any = null;
+
+    const publishDiffAbly = () => {
+      if (!editor) return;
+      const snapshot = getSnapshot(editor.store);
+      const { store } = getStoreAndSchema(snapshot);
+
+      const upserted: Record<string, any> = {};
+      const deletedIds: string[] = [];
+
+      for (const [id, record] of Object.entries(store)) {
+        if (!isShapeRecord(record)) continue;
+        const serialized = JSON.stringify(record);
+        if (lastSentAblyRef.current[id] !== serialized) {
+          upserted[id] = record;
+          lastSentAblyRef.current[id] = serialized;
+          knownAblyShapeIdsRef.current.add(id);
+        }
+      }
+      for (const id of Array.from(knownAblyShapeIdsRef.current)) {
+        if (!store[id]) {
+          deletedIds.push(id);
+          knownAblyShapeIdsRef.current.delete(id);
+          delete lastSentAblyRef.current[id];
+        }
+      }
+
+      if (Object.keys(upserted).length === 0 && deletedIds.length === 0) return;
+
+      // Publish via Ably (instant broadcast to all connected clients)
+      shapesChannel.publish("delta", { upserted, deleted: deletedIds });
+    };
+
+    const saveToRedis = async () => {
+      if (!editor) return;
       const snapshot = getSnapshot(editor.store);
       const { store, schema } = getStoreAndSchema(snapshot);
 
@@ -362,24 +414,21 @@ function CommunalSync({
       for (const [id, record] of Object.entries(store)) {
         if (!isShapeRecord(record)) continue;
         const serialized = JSON.stringify(record);
-        if (lastSentRef.current[id] !== serialized) {
+        if (lastSavedRedisRef.current[id] !== serialized) {
           upserted[id] = record;
-          lastSentRef.current[id] = serialized;
-          knownShapeIdsRef.current.add(id);
+          lastSavedRedisRef.current[id] = serialized;
+          knownRedisShapeIdsRef.current.add(id);
         }
       }
-      for (const id of Array.from(knownShapeIdsRef.current)) {
+      for (const id of Array.from(knownRedisShapeIdsRef.current)) {
         if (!store[id]) {
           deletedIds.push(id);
-          knownShapeIdsRef.current.delete(id);
-          delete lastSentRef.current[id];
+          knownRedisShapeIdsRef.current.delete(id);
+          delete lastSavedRedisRef.current[id];
         }
       }
 
       if (Object.keys(upserted).length === 0 && deletedIds.length === 0) return;
-
-      // Publish via Ably (instant broadcast to all connected clients)
-      shapesChannel.publish("delta", { upserted, deleted: deletedIds });
 
       // Save to Redis (durable cloud storage)
       try {
@@ -421,8 +470,13 @@ function CommunalSync({
       } catch (_) { hasShapeChange = true; }
 
       if (hasShapeChange) {
-        if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(publishDiff, 80); // 80ms debounce — fast but not every keystroke
+        // Ably realtime sync (80ms debounce for high interactivity)
+        if (publishAblyTimeout) clearTimeout(publishAblyTimeout);
+        publishAblyTimeout = setTimeout(publishDiffAbly, 80);
+
+        // Redis durable sync (2500ms debounce to avoid spamming the HTTP endpoint while drawing)
+        if (saveRedisTimeout) clearTimeout(saveRedisTimeout);
+        saveRedisTimeout = setTimeout(saveToRedis, 2500);
       }
     });
 
@@ -566,7 +620,8 @@ function CommunalSync({
 
     return () => {
       unsubscribeStore();
-      if (saveTimeout) clearTimeout(saveTimeout);
+      if (publishAblyTimeout) clearTimeout(publishAblyTimeout);
+      if (saveRedisTimeout) clearTimeout(saveRedisTimeout);
       shapesChannel.unsubscribe("delta", onShapeDelta);
       cursorsChannel.presence.unsubscribe();
       try { cursorsChannel.presence.leave(); } catch (_) {}
@@ -598,9 +653,11 @@ function CameraLock({ userZoom }: CameraLockProps) {
   useEffect(() => {
     if (!editor) return;
 
+    let active = true;
     const VIRTUAL_WIDTH = 800;
 
     const updateCamera = () => {
+      if (!active) return;
       try {
         const container = editor.getContainer();
         if (!container) return;
@@ -629,7 +686,11 @@ function CameraLock({ userZoom }: CameraLockProps) {
 
     // Observe size changes of the canvas container
     const resizeObserver = new ResizeObserver(() => {
-      updateCamera();
+      requestAnimationFrame(() => {
+        if (active) {
+          updateCamera();
+        }
+      });
     });
     try {
       const container = editor.getContainer();
@@ -644,6 +705,7 @@ function CameraLock({ userZoom }: CameraLockProps) {
     });
 
     return () => {
+      active = false;
       resizeObserver.disconnect();
       unsub();
     };

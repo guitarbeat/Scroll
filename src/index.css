@@ -603,7 +603,7 @@ body {
   border-radius: 9999px;
   cursor: pointer;
   background: url("/stamp.png") no-repeat center/contain;
-  filter: drop-shadow(0 12px 24px rgba(0,0,0,0.65));
+  box-shadow: 0 12px 28px rgba(0,0,0,0.65);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -621,11 +621,9 @@ body {
 
 @keyframes sealPulse {
   0%, 100% {
-    filter: drop-shadow(0 12px 24px rgba(0,0,0,0.65)) brightness(1);
     transform: scale(1);
   }
   50% {
-    filter: drop-shadow(0 16px 32px rgba(217,83,74,0.4)) brightness(1.08);
     transform: scale(1.03);
   }
 }

@@ -655,17 +655,23 @@ function CameraLock({ userZoom }: CameraLockProps) {
 
     let active = true;
     const VIRTUAL_WIDTH = 800;
+    let cachedTargetZoom: number | null = null;
 
-    const updateCamera = () => {
+    const updateCamera = (forceRecalculateRect = false) => {
       if (!active) return;
       try {
-        const container = editor.getContainer();
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
-        if (!rect.width) return;
+        if (forceRecalculateRect || cachedTargetZoom === null) {
+          const container = editor.getContainer();
+          if (container) {
+            const rect = container.getBoundingClientRect();
+            if (rect.width) {
+              const baselineZoom = rect.width / VIRTUAL_WIDTH;
+              cachedTargetZoom = baselineZoom * userZoom;
+            }
+          }
+        }
 
-        const baselineZoom = rect.width / VIRTUAL_WIDTH;
-        const targetZoom = baselineZoom * userZoom;
+        const targetZoom = cachedTargetZoom ?? 1;
 
         // Force camera to stay at (0, 0) in page space with the calculated target zoom
         const currentCam = editor.getCamera();
@@ -682,13 +688,13 @@ function CameraLock({ userZoom }: CameraLockProps) {
     };
 
     // Update on mount and userZoom change
-    updateCamera();
+    updateCamera(true);
 
     // Observe size changes of the canvas container
     const resizeObserver = new ResizeObserver(() => {
       requestAnimationFrame(() => {
         if (active) {
-          updateCamera();
+          updateCamera(true);
         }
       });
     });
@@ -699,9 +705,9 @@ function CameraLock({ userZoom }: CameraLockProps) {
       }
     } catch (_) {}
 
-    // Enforce constraints on user interactions or other changes
+    // Enforce constraints on user interactions or other changes without layout thrashing
     const unsub = editor.store.listen(() => {
-      updateCamera();
+      updateCamera(false);
     });
 
     return () => {
@@ -723,11 +729,19 @@ function ScrollBoundsUpdater() {
     if (!editor) return;
     const sheetWrap = document.getElementById("sheetWrap");
     if (!sheetWrap) return;
+    let pendingFrame: number | null = null;
     const handler = () => {
-      try { (editor as any).updateViewportScreenBounds(); } catch (_) {}
+      if (pendingFrame !== null) return;
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        try { (editor as any).updateViewportScreenBounds(); } catch (_) {}
+      });
     };
     sheetWrap.addEventListener("scroll", handler, { passive: true });
-    return () => sheetWrap.removeEventListener("scroll", handler);
+    return () => {
+      sheetWrap.removeEventListener("scroll", handler);
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
+    };
   }, [editor]);
   return null;
 }

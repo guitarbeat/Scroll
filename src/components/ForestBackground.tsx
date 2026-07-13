@@ -8,68 +8,100 @@ export default function ForestBackground() {
   const fiveRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let scrollY = 0;
-    let mouseX = 0; // -1 to 1
-    let mouseY = 0; // -1 to 1
-    let pendingFrame: number | null = null;
+    let targetScrollY = 0;
+    let targetMouseX = 0;
+    let targetMouseY = 0;
+
+    let currentScrollY = 0;
+    let currentMouseX = 0;
+    let currentMouseY = 0;
+
+    let isAnimating = false;
+    let frameId: number | null = null;
 
     const updateParallax = () => {
+      // Ultra-smooth linear interpolation
+      const ease = 0.08; // smooth dampening coefficient
+
+      currentScrollY += (targetScrollY - currentScrollY) * ease;
+      currentMouseX += (targetMouseX - currentMouseX) * ease;
+      currentMouseY += (targetMouseY - currentMouseY) * ease;
+
+      const diffScroll = Math.abs(targetScrollY - currentScrollY);
+      const diffX = Math.abs(targetMouseX - currentMouseX);
+      const diffY = Math.abs(targetMouseY - currentMouseY);
+
+      // If the values have converged closely enough, snap and stop animation loop to conserve battery/CPU
+      if (diffScroll < 0.05 && diffX < 0.0005 && diffY < 0.0005) {
+        currentScrollY = targetScrollY;
+        currentMouseX = targetMouseX;
+        currentMouseY = targetMouseY;
+        isAnimating = false;
+      }
+
       // Limit background vertical movement to 120px so trees always stay in frame
-      const dampedScroll = Math.min(scrollY * 0.15, 120);
+      const dampedScroll = Math.min(currentScrollY * 0.15, 120);
 
       // Parallax ratios for depth layers
-      const t1 = `translate(${mouseX * 5}px, ${-dampedScroll * 0.1 + mouseY * 5}px)`;
-      const t2 = `translate(${mouseX * 12}px, ${-dampedScroll * 0.25 + mouseY * 12}px)`;
-      const t3 = `translate(${mouseX * 8}px, ${-dampedScroll * 0.4 + mouseY * 8}px)`;
-      const t4 = `translate(${-mouseX * 18}px, ${-dampedScroll * 0.55 + mouseY * 18}px)`;
-      const t5 = `translate(${mouseX * 25}px, ${-dampedScroll * 0.7 + -mouseY * 25}px)`;
+      const t1 = `translate(${currentMouseX * 5}px, ${-dampedScroll * 0.1 + currentMouseY * 5}px)`;
+      const t2 = `translate(${currentMouseX * 12}px, ${-dampedScroll * 0.25 + currentMouseY * 12}px)`;
+      const t3 = `translate(${currentMouseX * 8}px, ${-dampedScroll * 0.4 + currentMouseY * 8}px)`;
+      const t4 = `translate(${-currentMouseX * 18}px, ${-dampedScroll * 0.55 + currentMouseY * 18}px)`;
+      const t5 = `translate(${currentMouseX * 25}px, ${-dampedScroll * 0.7 + -currentMouseY * 25}px)`;
 
       if (oneRef.current) oneRef.current.style.transform = t1;
       if (twoRef.current) twoRef.current.style.transform = t2;
       if (threeRef.current) threeRef.current.style.transform = t3;
       if (fourRef.current) fourRef.current.style.transform = t4;
       if (fiveRef.current) fiveRef.current.style.transform = t5;
+
+      if (isAnimating) {
+        frameId = requestAnimationFrame(updateParallax);
+      } else {
+        frameId = null;
+      }
     };
 
-    const requestUpdate = () => {
-      if (pendingFrame !== null) return;
-      pendingFrame = requestAnimationFrame(() => {
-        pendingFrame = null;
-        updateParallax();
-      });
+    const triggerAnimation = () => {
+      if (!isAnimating) {
+        isAnimating = true;
+        if (frameId === null) {
+          frameId = requestAnimationFrame(updateParallax);
+        }
+      }
     };
 
     const handleScroll = (e: Event) => {
       const target = e.target as HTMLElement;
       if (target && target.id === "sheetWrap") {
-        scrollY = target.scrollTop;
+        targetScrollY = target.scrollTop;
       } else {
-        scrollY = window.scrollY;
+        targetScrollY = window.scrollY;
       }
-      requestUpdate();
+      triggerAnimation();
     };
 
     const handleMouseMove = (e: MouseEvent) => {
       const w = window.innerWidth;
       const h = window.innerHeight;
       // Normalize to [-1, 1]
-      mouseX = (e.clientX - w / 2) / (w / 2);
-      mouseY = (e.clientY - h / 2) / (h / 2);
-      requestUpdate();
+      targetMouseX = (e.clientX - w / 2) / (w / 2);
+      targetMouseY = (e.clientY - h / 2) / (h / 2);
+      triggerAnimation();
     };
 
     // Use capturing to listen to scroll events inside sheetWrap as well
     window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
 
-    // Initial positioning
+    // Initial run to set positions
     updateParallax();
 
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
       window.removeEventListener("mousemove", handleMouseMove);
-      if (pendingFrame !== null) {
-        cancelAnimationFrame(pendingFrame);
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
       }
     };
   }, []);

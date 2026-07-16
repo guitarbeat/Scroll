@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import Ably from "ably";
-import { Tldraw, useEditor, getSnapshot, createShapeId } from "tldraw";
+import { Tldraw, useEditor, getSnapshot, createShapeId, Editor } from "tldraw";
 import "tldraw/tldraw.css";
 
 // ---------------------------------------------------------------------------
@@ -16,11 +16,16 @@ const CURSOR_COLORS = [
   { name: "Oak Gall",    hex: "#3d2b0f" },
   { name: "Saffron",     hex: "#b8860b" },
 ];
-const SESSION_COLOR =
-  CURSOR_COLORS[
-    SESSION_ID.split("").reduce((a, c) => a + c.charCodeAt(0), 0) %
-      CURSOR_COLORS.length
-  ];
+
+/**
+ * Calculates a stable color from the session identifier.
+ */
+function getStableSessionColor(id: string): { name: string; hex: string } {
+  const sum = id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return CURSOR_COLORS[sum % CURSOR_COLORS.length];
+}
+
+const SESSION_COLOR = getStableSessionColor(SESSION_ID);
 
 // ---------------------------------------------------------------------------
 // Ably singleton — one connection shared for the whole app lifetime
@@ -42,7 +47,7 @@ function getAblyClient(): Ably.Realtime {
 // tldraw coords), not screen pixels. This ensures they land in the same spot
 // on every screen size regardless of window width or scroll position.
 // ---------------------------------------------------------------------------
-function screenToPage(editor: any, screenX: number, screenY: number) {
+function screenToPage(editor: Editor, screenX: number, screenY: number) {
   try {
     const pt = editor.screenToPage({ x: screenX, y: screenY });
     return { x: pt.x, y: pt.y };
@@ -51,7 +56,7 @@ function screenToPage(editor: any, screenX: number, screenY: number) {
   }
 }
 
-function pageToScreen(editor: any, pageX: number, pageY: number) {
+function pageToScreen(editor: Editor, pageX: number, pageY: number) {
   try {
     const pt = editor.pageToScreen({ x: pageX, y: pageY });
     return { x: pt.x, y: pt.y };
@@ -79,7 +84,7 @@ function GhostCursors({
 }: {
   cursors: Record<string, RemoteCursor>;
   mySessionId: string;
-  editor: any;
+  editor: Editor | null;
 }) {
   // Re-render on a RAF loop so cursors stay correct as the user scrolls.
   // Only run the loop when there are actually remote cursors to show.
@@ -153,14 +158,14 @@ function GhostCursors({
 
 
 interface WritingCanvasProps {
-  onEditorReady: (editor: any) => void;
+  onEditorReady: (editor: Editor) => void;
   userZoom: number;
   setUserZoom: React.Dispatch<React.SetStateAction<number>>;
 }
 
-function EditorRefSetter({ onEditorReady }: { onEditorReady: (editor: any) => void }) {
+function EditorRefSetter({ onEditorReady }: { onEditorReady: (editor: Editor) => void }) {
   const editor = useEditor();
-  const lastRef = React.useRef<any>(null);
+  const lastRef = React.useRef<Editor | null>(null);
   useEffect(() => {
     if (editor && editor !== lastRef.current) {
       lastRef.current = editor;
@@ -902,7 +907,7 @@ export default function WritingCanvas({
   setUserZoom,
 }: WritingCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const [editor, setEditor] = React.useState<any>(null);
+  const [editor, setEditor] = React.useState<Editor | null>(null);
   const [remoteCursors, setRemoteCursors] = React.useState<Record<string, RemoteCursor>>({});
   const loupeRef = React.useRef<LoupeState>({ active: false, lx: 0, ly: 0, mag: LOUPE_MAG_DEFAULT });
   React.useEffect(() => { loupeRef.current.mag = loadLoupeMag(); }, []);
@@ -914,7 +919,7 @@ export default function WritingCanvas({
     setUserZoomRef.current = setUserZoom;
   }, [userZoom, setUserZoom]);
 
-  const handleEditorReady = (ed: any) => {
+  const handleEditorReady = (ed: Editor) => {
     setEditor(ed);
     if (onEditorReady) onEditorReady(ed);
   };
@@ -963,10 +968,10 @@ export default function WritingCanvas({
             const rect = container.getBoundingClientRect();
             editor.run(() => {
               editor.createAssets([{ id: assetId, type: "image", typeName: "asset",
-                props: { name: file.name || "paste.png", src, w, h, mimeType: file.type } }]);
+                props: { name: file.name || "paste.png", src, w, h, mimeType: file.type } } as any]);
               editor.createShapes([{ id: shapeId, type: "image",
                 x: Math.max(20, rect.width/2 - w/2), y: Math.max(20, rect.height/2 - h/2),
-                props: { assetId, w, h } }]);
+                props: { assetId, w, h } } as any]);
             });
           };
           img.src = src;
@@ -1036,7 +1041,7 @@ export default function WritingCanvas({
                 x: pagePoint.x,
                 y: pagePoint.y,
                 props: { text: "", autoSize: true },
-              });
+              } as any);
               editor.setCurrentTool("select");
               editor.select(id);
               // Trigger edit mode so the keyboard opens immediately
@@ -1136,7 +1141,7 @@ export default function WritingCanvas({
             x: pagePoint.x,
             y: pagePoint.y,
             props: { text: "", autoSize: true },
-          });
+          } as any);
           editor.setCurrentTool("select");
           editor.select(id);
           editor.setEditingShape(id);

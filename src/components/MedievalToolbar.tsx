@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { DefaultColorStyle } from "tldraw";
+import { DefaultColorStyle, Editor } from "tldraw";
 import { Feather, Eraser, Undo2, Redo2, Type } from "lucide-react";
 
 interface MedievalToolbarProps {
-  editor: any;
+  editor: Editor;
 }
 
 // Tool labels shown beneath the toolbar when a non-default tool is active

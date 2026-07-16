@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { Editor } from "tldraw";
 import ForestBackground from "./components/ForestBackground";
 import WritingCanvas from "./components/WritingCanvas";
 import MedievalToolbar from "./components/MedievalToolbar";
@@ -37,7 +38,7 @@ interface Particle {
 }
 
 export default function App() {
-  const [editor, setEditor] = useState<any>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [isOpened, setIsOpened] = useState(false);
   const [isUnrolling, setIsUnrolling] = useState(false);
   const [isOpeningRig, setIsOpeningRig] = useState(false);

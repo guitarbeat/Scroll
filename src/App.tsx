@@ -57,25 +57,30 @@ export default function App() {
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
+  const [showDate, setShowDate] = useState(false);
 
   // ── Scroll proportions: height driven by viewport ───────────────────────
 
   const getTargetViewport = () => {
     if (typeof window === "undefined") return 600;
     
-    // Estimate roller height without slow getComputedStyle layout queries.
-    // Falls back to direct measurement if element is available, otherwise uses equivalent math.
-    const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, window.innerWidth * 0.08), 58);
+    let containerEl = document.getElementById("sheetContainer");
+    let containerW = containerEl ? containerEl.offsetWidth : 0;
     
-    // Toolbar sits at the bottom: ~56px tall + 20px bottom margin + up to 34px safe-area = ~110px.
-    // The rig is vertically centered, so the effective usable height for the rig is:
-    //   viewport height - toolbar footprint
-    // We use 94% of that remaining space so there's a small visual margin top and bottom.
-    const toolbarFootprint = 110;
-    const usable = (window.innerHeight - toolbarFootprint) * 0.94;
-    // Subtract both rollers so the parchment itself fits within usable.
-    const available = usable - rollerH * 2;
-    return Math.max(280, Math.min(available, 1400));
+    // Fallback if not rendered yet
+    if (!containerEl || containerW === 0) {
+       const vw = window.innerWidth;
+       let rigW = 0;
+       if (vw <= 480) rigW = vw - 5.5 * 16;
+       else if (vw <= 768) rigW = vw - 8 * 16;
+       else rigW = vw - 11 * 16;
+       
+       rigW = Math.min(850, rigW);
+       containerW = rigW - 2.25 * 16;
+    }
+    
+    // Enforce constant aspect ratio: height is always exactly 1.4x the width.
+    return containerW * 1.4;
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -124,16 +129,25 @@ export default function App() {
     setMotes(list);
   }, []);
 
-  // rigScale: safety-net only. CSS handles width; we only scale if the total
-  // rig height (parchment + rollers) would physically clip the viewport.
+  // rigScale: CSS handles width; we compute total height to maintain our constant
+  // aspect ratio, and then scale the entire rig down if it exceeds the viewport,
+  // ensuring it is always fully visible.
   useEffect(() => {
     const handleResize = () => {
       const vh  = window.innerHeight;
-      const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, window.innerWidth * 0.08), 58);
+      const vw  = window.innerWidth;
+      
+      const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, vw * 0.08), 58);
       const target  = getTargetViewport();
       const totalH  = target + rollerH * 2;
-      // Never scale up; only pull down when it would overflow vertically.
-      const scale = totalH > vh ? Math.max(0.5, vh / totalH) : 1;
+      
+      // Toolbar footprint ensures we don't overlap UI at the bottom
+      const toolbarFootprint = 110;
+      // Also leave a tiny margin at the top
+      const usableHeight = vh - toolbarFootprint - 20; 
+      
+      // Scale down if totalH > usableHeight so it is ALWAYS visible
+      const scale = totalH > usableHeight ? usableHeight / totalH : 1;
       setRigScale(scale);
     };
     handleResize();
@@ -413,17 +427,17 @@ export default function App() {
     }, 3900);
   };
 
-  // Roller physical dragging events (Pointer Down)
-  const onRollerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Only drag on left-click for mouse
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+  // Pull-to-Unroll gesture (Global Pointer Down when closed)
+  useEffect(() => {
+    if (isOpened) return;
 
-    // Ignore if clicking interactive items inside rollers
-    const target = e.target as HTMLElement;
-    if (target.closest("button") || target.closest("a")) return;
+    const handleGlobalPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
 
-    if (!isOpened) {
-      // ---- Closed State: Pull down to Unroll ----
+      const target = e.target as HTMLElement;
+      if (target.closest("#sealScene") || target.closest("button") || target.closest("a")) return;
+
+      // Allow pull anywhere
       isUnrollDraggingRef.current = true;
       unrollStartYRef.current = e.clientY;
       currentUnrollHeightRef.current = 0;
@@ -435,23 +449,37 @@ export default function App() {
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
       document.body.style.cursor = "grabbing";
-    } else {
-      // ---- Opened State: Drag to Scroll ----
-      isDraggingRef.current = true;
-      startYRef.current = e.clientY;
-      lastYRef.current = e.clientY;
-      lastTimeRef.current = performance.now();
-      velocityRef.current = 0;
-      startScrollYRef.current = sheetWrapRef.current ? sheetWrapRef.current.scrollTop : 0;
+    };
 
-      if (inertiaFrameRef.current) {
-        cancelAnimationFrame(inertiaFrameRef.current);
-      }
+    window.addEventListener("pointerdown", handleGlobalPointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handleGlobalPointerDown);
+    };
+  }, [isOpened]);
 
-      document.body.style.userSelect = "none";
-      document.body.style.webkitUserSelect = "none";
-      document.body.style.cursor = "grabbing";
+  // Roller physical dragging events (Pointer Down)
+  const onRollerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isOpened) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("a")) return;
+
+    // ---- Opened State: Drag to Scroll ----
+    isDraggingRef.current = true;
+    startYRef.current = e.clientY;
+    lastYRef.current = e.clientY;
+    lastTimeRef.current = performance.now();
+    velocityRef.current = 0;
+    startScrollYRef.current = sheetWrapRef.current ? sheetWrapRef.current.scrollTop : 0;
+
+    if (inertiaFrameRef.current) {
+      cancelAnimationFrame(inertiaFrameRef.current);
     }
+
+    document.body.style.userSelect = "none";
+    document.body.style.webkitUserSelect = "none";
+    document.body.style.cursor = "grabbing";
   };
 
   // Scoped window-level pointer move, up and cancel event bindings
@@ -491,12 +519,15 @@ export default function App() {
           // ---- Unroll Pulling ----
           const deltaY = ev.clientY - unrollStartYRef.current;
           if (deltaY > 0) {
-            currentUnrollHeightRef.current = Math.min(deltaY, 150);
-            setSheetMaxHeight(`${currentUnrollHeightRef.current}px`);
+            // Apply springy resistance for the mobile pull-to-refresh feel
+            const resistance = 0.55;
+            const pulledHeight = Math.min(deltaY * resistance, 150);
+            currentUnrollHeightRef.current = pulledHeight;
+            setSheetMaxHeight(`${pulledHeight}px`);
 
             const sealSceneEl = document.getElementById("sealScene");
             if (sealSceneEl) {
-              sealSceneEl.style.transform = `translateY(${currentUnrollHeightRef.current * 0.4}px)`;
+              sealSceneEl.style.transform = `translateY(${pulledHeight * 0.4}px)`;
             }
           } else {
             setSheetMaxHeight("0px");
@@ -656,7 +687,7 @@ export default function App() {
   }, [isOpened]);
 
   return (
-    <div className="min-h-full selection:bg-[#7a1f12] selection:text-[#f2e2b8]">
+    <div className={`min-h-full selection:bg-[#7a1f12] selection:text-[#f2e2b8] ${!isOpened ? 'touch-none' : ''}`}>
       {/* Forest Parallax Background */}
       <ForestBackground />
 
@@ -761,7 +792,7 @@ export default function App() {
           isOpened ? "opacity-100" : "opacity-0"
         } ${isOpeningRig ? "open" : ""}`}
         style={{
-          transform: `translate(-50%, -50%) scale(${rigScale * userZoom})`,
+          transform: `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'})) scale(${rigScale * userZoom})`,
           transformOrigin: "center center",
         }}
       >
@@ -836,6 +867,16 @@ export default function App() {
                 className="relative z-0 flex flex-col justify-between"
                 style={{ minHeight: `${dynamicSheetHeight}px` }}
               >
+                {/* Optional Date of Creation */}
+                {showDate && (
+                  <div className="pt-8 text-center pointer-events-none select-none relative z-20 animate-fade-in">
+                    <span className="cinzel text-[#4a3424] opacity-70 text-lg tracking-[0.1em]">
+                      Anno Domini {new Date().getFullYear()}
+                    </span>
+                    <div className="w-16 h-[1px] bg-[#4a3424]/20 mx-auto mt-2" />
+                  </div>
+                )}
+
                 {/* Flex spacer to push the footer down to the very bottom of the sheet */}
                 <div className="flex-1 w-full pointer-events-none" />
 
@@ -899,6 +940,8 @@ export default function App() {
       {editor && isOpened && (
         <MedievalToolbar 
           editor={editor} 
+          showDate={showDate}
+          onToggleDate={() => setShowDate(!showDate)}
         />
       )}
 

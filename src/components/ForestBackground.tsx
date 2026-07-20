@@ -90,9 +90,32 @@ export default function ForestBackground() {
       triggerAnimation();
     };
 
+    const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
+      if (e.gamma === null || e.beta === null) return;
+      
+      // gamma is the left-to-right tilt in degrees, where right is positive (-90 to 90)
+      let gamma = e.gamma;
+      // beta is the front-to-back tilt in degrees, where front is positive (-180 to 180)
+      let beta = e.beta;
+
+      // Restrict gamma to -45 to 45
+      gamma = Math.max(-45, Math.min(45, gamma));
+      
+      // Assume a neutral holding position for beta is around 45 degrees
+      // Restrict beta range from 20 to 70 degrees
+      beta = Math.max(20, Math.min(70, beta));
+
+      // Normalize to [-1, 1]
+      targetMouseX = gamma / 45;
+      targetMouseY = (beta - 45) / 25; 
+      
+      triggerAnimation();
+    };
+
     // Use capturing to listen to scroll events inside sheetWrap as well
     window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    window.addEventListener("deviceorientation", handleDeviceOrientation, { passive: true });
 
     // Initial run to set positions
     updateParallax();
@@ -100,6 +123,7 @@ export default function ForestBackground() {
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
       window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("deviceorientation", handleDeviceOrientation);
       if (frameId !== null) {
         cancelAnimationFrame(frameId);
       }

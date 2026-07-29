@@ -90,9 +90,15 @@ export default function ForestBackground() {
       triggerAnimation();
     };
 
+    let lastOrientationTime = 0;
     const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
       if (e.gamma === null || e.beta === null) return;
       
+      const now = performance.now();
+      // Limit gyro updates to ~20fps (every 50ms) to conserve mobile CPU
+      if (now - lastOrientationTime < 50) return;
+      lastOrientationTime = now;
+
       // gamma is the left-to-right tilt in degrees, where right is positive (-90 to 90)
       let gamma = e.gamma;
       // beta is the front-to-back tilt in degrees, where front is positive (-180 to 180)

@@ -933,7 +933,10 @@ export default function WritingCanvas({
     const container = containerRef.current;
     if (!container) return;
     const handleWheel = (e: WheelEvent) => {
-      document.getElementById("sheetWrap")!?.scrollBy(0, e.deltaY);
+      const sheetWrap = document.getElementById("sheetWrap");
+      if (sheetWrap) {
+        sheetWrap.scrollBy(0, e.deltaY);
+      }
       e.stopPropagation();
     };
     container.addEventListener("wheel", handleWheel, { capture: true });

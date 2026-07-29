@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Editor } from "tldraw";
+import { Maximize2, Minimize2 } from "lucide-react";
 import ForestBackground from "./components/ForestBackground";
 import WritingCanvas from "./components/WritingCanvas";
 import MedievalToolbar from "./components/MedievalToolbar";
@@ -58,6 +59,7 @@ export default function App() {
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
   const [showDate, setShowDate] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // ── Scroll proportions: height driven by viewport ───────────────────────
 
@@ -157,29 +159,53 @@ export default function App() {
   }, []);
 
   // Update roller background scroll offset for dynamic rotation
-  useEffect(() => {
-    let active = true;
-    function updateRollers() {
-      if (!active) return;
-      if (topRollerRef.current && bottomRollerRef.current && sheetWrapRef.current) {
-        const currentHeight = sheetWrapRef.current.getBoundingClientRect().height;
-        const currentScroll = sheetWrapRef.current.scrollTop;
+  const updateRollers = useCallback(() => {
+    if (topRollerRef.current && bottomRollerRef.current && sheetWrapRef.current) {
+      const currentHeight = sheetWrapRef.current.getBoundingClientRect().height;
+      const currentScroll = sheetWrapRef.current.scrollTop;
 
-        // Top roller rotates clockwise, bottom roller rotates counter-clockwise as they unroll.
-        // They both rotate clockwise as we scroll down.
-        const topOffset = currentHeight * 0.45 + currentScroll * 0.6;
-        const bottomOffset = -currentHeight * 0.45 + currentScroll * 0.6;
+      // Top roller rotates clockwise, bottom roller rotates counter-clockwise as they unroll.
+      // They both rotate clockwise as we scroll down.
+      const topOffset = currentHeight * 0.45 + currentScroll * 0.6;
+      const bottomOffset = -currentHeight * 0.45 + currentScroll * 0.6;
 
-        topRollerRef.current.style.setProperty("--roller-scroll", `${topOffset}px`);
-        bottomRollerRef.current.style.setProperty("--roller-scroll", `${bottomOffset}px`);
-      }
-      requestAnimationFrame(updateRollers);
+      topRollerRef.current.style.setProperty("--roller-scroll", `${topOffset}px`);
+      bottomRollerRef.current.style.setProperty("--roller-scroll", `${bottomOffset}px`);
     }
-    requestAnimationFrame(updateRollers);
-    return () => {
-      active = false;
-    };
   }, []);
+
+  // Sync rollers whenever unroll height or scroll position changes
+  useEffect(() => {
+    updateRollers();
+    const sheetWrap = sheetWrapRef.current;
+    if (!sheetWrap) return;
+
+    const handleScroll = () => {
+      updateRollers();
+    };
+
+    sheetWrap.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      sheetWrap.removeEventListener("scroll", handleScroll);
+    };
+  }, [sheetMaxHeight, isOpened, isUnrolling, updateRollers]);
+
+  // Dispatch smooth 60fps resize events during expand & minimize transitions for tldraw canvas
+  useEffect(() => {
+    updateRollers();
+    let frameId: number;
+    const startTime = performance.now();
+    const animateResize = (now: number) => {
+      window.dispatchEvent(new Event("resize"));
+      if (now - startTime < 650) {
+        frameId = requestAnimationFrame(animateResize);
+      }
+    };
+    frameId = requestAnimationFrame(animateResize);
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [isExpanded, updateRollers]);
 
   // Toggle cursor helper class on body
   useEffect(() => {
@@ -691,6 +717,13 @@ export default function App() {
       {/* Forest Parallax Background */}
       <ForestBackground />
 
+      {/* Ambient dark vignette backdrop overlay when expanding canvas */}
+      <div
+        className={`fixed inset-0 z-30 bg-[#0e0804]/70 backdrop-blur-[3px] transition-opacity duration-600 ease-out pointer-events-none ${
+          isExpanded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+
       {/* Background dust particles */}
       <div className="dust" id="dust">
         {motes.map((mote) => (
@@ -790,16 +823,18 @@ export default function App() {
         id="rig"
         className={`transition-opacity duration-700 tool-${currentTool} ${
           isOpened ? "opacity-100" : "opacity-0"
-        } ${isOpeningRig ? "open" : ""}`}
+        } ${isOpeningRig ? "open" : ""} ${isUnrolling || isOpeningRig ? "will-change-transform" : ""} ${
+          isExpanded ? "canvas-expanded" : ""
+        }`}
         style={{
-          transform: `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'})) scale(${rigScale * userZoom})`,
+          transform: isExpanded ? "none" : `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'})) scale(${rigScale * userZoom})`,
           transformOrigin: "center center",
         }}
       >
         {/* Top Roller */}
         <div
           ref={topRollerRef}
-          className={`roller ${shakeTop ? "shake-top" : ""}`}
+          className={`roller ${shakeTop ? "shake-top" : ""} ${isUnrolling ? "will-change-transform" : ""}`}
           id="topRoller"
           onPointerDown={onRollerPointerDown}
           onDragStart={(e) => e.preventDefault()}
@@ -837,7 +872,8 @@ export default function App() {
           <div
             ref={sheetWrapRef}
             id="sheetWrap"
-            style={{ maxHeight: sheetMaxHeight }}
+            className={isUnrolling ? "is-unrolling" : ""}
+            style={{ maxHeight: isExpanded ? "100vh" : sheetMaxHeight }}
             onScroll={(e) => {
               if (e.currentTarget.scrollTop > 10) {
                 setShowScrollPrompt(false);
@@ -852,7 +888,7 @@ export default function App() {
             >
               {/* Beautiful visual tattered parchment background distorted by the SVG filter */}
               <div 
-                className="absolute inset-0 pointer-events-none parchment-bg-container"
+                className={`absolute inset-0 pointer-events-none parchment-bg-container ${isUnrolling ? "will-change-transform" : ""}`}
                 style={{ zIndex: -1 }}
               >
                 <div className="absolute inset-0 parchment-tex torn" />
@@ -937,11 +973,35 @@ export default function App() {
         </div>
       </div>
 
+      {/* Top Right Quick Expand / Collapse Canvas Button */}
+      {isOpened && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-label={isExpanded ? "Exit Full Canvas" : "Expand Canvas"}
+          title={isExpanded ? "Exit Full Canvas" : "Expand canvas to full view"}
+          className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3.5 py-2 rounded-full bg-gradient-to-b from-[#2e1d11] via-[#3a2517] to-[#180e07] border border-[#cca162] text-[#ebdcb9] hover:text-[#fffbee] hover:border-[#ebdcb9] shadow-[0_10px_24px_rgba(0,0,0,0.85)] active:scale-95 transition-all text-xs font-serif cursor-pointer backdrop-blur-md select-none pointer-events-auto"
+        >
+          {isExpanded ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5 text-[#e06c53]" />
+              <span className="hidden sm:inline">Exit Full Canvas</span>
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5 text-[#cca162]" />
+              <span className="hidden sm:inline">Expand Canvas</span>
+            </>
+          )}
+        </button>
+      )}
+
       {editor && isOpened && (
         <MedievalToolbar 
           editor={editor} 
           showDate={showDate}
           onToggleDate={() => setShowDate(!showDate)}
+          isExpanded={isExpanded}
+          onToggleExpand={() => setIsExpanded(!isExpanded)}
         />
       )}
 

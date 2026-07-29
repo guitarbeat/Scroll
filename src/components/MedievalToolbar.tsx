@@ -1,21 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { DefaultColorStyle, Editor } from "tldraw";
-import { Feather, Eraser, Undo2, Redo2, Type, MousePointer2, Hand, CalendarDays } from "lucide-react";
-import { motion, useDragControls, PanInfo } from "motion/react";
+import { Feather, Eraser, Undo2, Redo2, Type, MousePointer2, Hand, CalendarDays, Plus, X, SlidersHorizontal, Maximize2, Minimize2 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
 interface MedievalToolbarProps {
   editor: Editor;
   showDate: boolean;
   onToggleDate: () => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
-// Tool labels shown beneath the toolbar when a non-default tool is active
+// Tool labels shown when a non-default tool is active
 const TOOL_LABELS: Record<string, string> = {
-  select: "Tap or drag to select",
-  hand:   "Drag to pan the scroll",
-  draw:   "Draw on the scroll",
-  text:   "Tap anywhere to place text",
-  eraser: "Tap or drag to erase",
+  select: "Select mode",
+  hand:   "Pan mode",
+  draw:   "Quill drawing",
+  text:   "Text mode",
+  eraser: "Eraser mode",
 };
 
 const INK_COLORS = [
@@ -30,15 +32,18 @@ export default function MedievalToolbar({
   editor,
   showDate,
   onToggleDate,
+  isExpanded = false,
+  onToggleExpand,
 }: MedievalToolbarProps) {
   const [currentTool, setCurrentTool] = useState("draw");
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   
-  const [position, setPosition] = useState<"top" | "bottom">("bottom");
   const [currentColor, setCurrentColor] = useState<string>("black");
+  const [isFabOpen, setIsFabOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
-  const dragControls = useDragControls();
+  const [mode, setMode] = useState<"fab" | "bar">("fab"); // default to sleek FAB mode
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -58,14 +63,30 @@ export default function MedievalToolbar({
     return cleanup;
   }, [editor]);
 
+  // Close FAB menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsFabOpen(false);
+        setIsColorPickerOpen(false);
+      }
+    };
+    if (isFabOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isFabOpen]);
+
   if (!editor) return null;
 
   const selectTool = (toolId: string) => {
-    // Tapping the already-active tool returns to draw mode (natural "deselect")
     const next = toolId === currentTool ? "draw" : toolId;
     editor.setCurrentTool(next);
     setCurrentTool(next);
     setIsColorPickerOpen(false);
+    setIsFabOpen(false); // auto collapse on tool selection
     
     if (next === "draw" || next === "text") {
       editor.setStyleForNextShapes(DefaultColorStyle, currentColor as any);
@@ -88,6 +109,16 @@ export default function MedievalToolbar({
 
   const activeColorHex = INK_COLORS.find(c => c.id === currentColor)?.hex || "#151515";
 
+  const getToolIcon = (tool: string) => {
+    switch (tool) {
+      case "select": return <MousePointer2 className="w-4 h-4" />;
+      case "hand": return <Hand className="w-4 h-4" />;
+      case "text": return <Type className="w-4 h-4" />;
+      case "eraser": return <Eraser className="w-4 h-4" />;
+      default: return <Feather className="w-4 h-4" />;
+    }
+  };
+
   const btn = (toolId: string, icon: React.ReactNode, label: string) => (
     <button
       key={toolId}
@@ -109,43 +140,225 @@ export default function MedievalToolbar({
     <div className="w-[1.5px] h-5 bg-gradient-to-b from-[#cca162]/15 via-[#cca162]/55 to-[#cca162]/15 shrink-0" />
   );
 
-  const hint = TOOL_LABELS[currentTool];
-  const isTop = position === "top";
+  // ── 1. FLOATING ACTION BUTTON (FAB) MODE ─────────────────────────────────
+  if (mode === "fab") {
+    return (
+      <div 
+        ref={menuRef}
+        className="fixed z-50 flex flex-col items-end pointer-events-auto"
+        style={{
+          bottom: "max(1.25rem, env(safe-area-inset-bottom, 0px) + 0.5rem)",
+          right: "max(1.25rem, env(safe-area-inset-right, 0px) + 0.5rem)",
+        }}
+      >
+        {/* Speed Dial Menu Popover */}
+        <AnimatePresence>
+          {isFabOpen && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 15 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="mb-3 flex flex-col items-end gap-2 p-3 bg-gradient-to-b from-[#2e1d11] via-[#422e1b] to-[#1e130a] border-2 border-[#cca162] rounded-2xl shadow-[0_16px_36px_rgba(0,0,0,0.9),_inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-md text-[#ebdcb9]"
+            >
+              {/* Contextual hint header */}
+              <div className="w-full text-right text-[11px] font-serif tracking-wider text-[#cca162]/80 pb-1 border-b border-[#cca162]/20">
+                {TOOL_LABELS[currentTool] || "Quill drawing"}
+              </div>
 
-  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.point.y < window.innerHeight / 2) {
-      setPosition("top");
-    } else {
-      setPosition("bottom");
-    }
-  };
+              {/* Main Tools Row */}
+              <div className="flex items-center gap-1.5 pt-1">
+                {btn("select", <MousePointer2 className="w-4 h-4" />, "Select")}
+                {btn("hand",   <Hand className="w-4 h-4" />, "Pan")}
+                {btn("draw",   <Feather className="w-4 h-4" />, "Quill")}
+                {btn("text",   <Type className="w-4 h-4" />, "Write text")}
+                {btn("eraser", <Eraser className="w-4 h-4" />, "Erase")}
+              </div>
 
+              <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#cca162]/30 to-transparent my-0.5" />
+
+              {/* Secondary Controls Row (Ink, Date, Mode, Undo/Redo) */}
+              <div className="flex items-center gap-2">
+                {/* Expand / Minimize Canvas */}
+                {onToggleExpand && (
+                  <button
+                    onClick={() => {
+                      onToggleExpand();
+                      setIsFabOpen(false);
+                    }}
+                    aria-label={isExpanded ? "Exit Full Canvas" : "Expand Canvas"}
+                    title={isExpanded ? "Exit Full Canvas" : "Expand canvas to full view"}
+                    style={{ minWidth: 40, minHeight: 40 }}
+                    className={`flex items-center justify-center rounded-full transition-all duration-200 shrink-0 cursor-pointer ${
+                      isExpanded
+                        ? "bg-[#8a241b] text-[#fdfcf7] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] border border-[#e3bf8c]/40 scale-105"
+                        : "text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee]"
+                    }`}
+                  >
+                    {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                )}
+
+                {/* Date Toggle */}
+                <button
+                  onClick={onToggleDate}
+                  aria-label="Toggle Date"
+                  title="Toggle creation date"
+                  style={{ minWidth: 40, minHeight: 40 }}
+                  className={`flex items-center justify-center rounded-full transition-all duration-200 shrink-0 cursor-pointer ${
+                    showDate
+                      ? "bg-gradient-to-b from-[#a8251a] to-[#590e06] text-[#fdfcf7] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2),_0_2px_4px_rgba(0,0,0,0.5)] border border-[#e3bf8c]/30 scale-105"
+                      : "text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee]"
+                  }`}
+                >
+                  <CalendarDays className="w-4 h-4" />
+                </button>
+
+                {/* Ink Color Button & Popover */}
+                <div className="relative">
+                  <button
+                    aria-label="Select Ink Color"
+                    onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
+                    style={{ minWidth: 40, minHeight: 40 }}
+                    className="flex items-center justify-center rounded-full bg-[#cca162]/10 border border-[#cca162]/30 hover:bg-[#cca162]/20 transition-all cursor-pointer"
+                  >
+                    <div 
+                      className="w-4 h-4 rounded-full shadow-[inset_0_2px_3px_rgba(0,0,0,0.9)] relative"
+                      style={{ backgroundColor: activeColorHex }}
+                    >
+                      <div className="absolute top-0.5 left-0.5 w-1 h-0.5 bg-white/30 rounded-full" />
+                    </div>
+                  </button>
+
+                  {/* Inline Color Palette */}
+                  {isColorPickerOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, x: -10 }}
+                      animate={{ opacity: 1, scale: 1, x: 0 }}
+                      className="absolute right-full top-1/2 -translate-y-1/2 mr-2 flex items-center gap-1.5 bg-[#2e1d11] border border-[#cca162]/40 p-1.5 rounded-full shadow-lg"
+                    >
+                      {INK_COLORS.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => handleColorSelect(c.id)}
+                          title={c.name}
+                          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-110 active:scale-95 ${currentColor === c.id ? "border-[#cca162]" : "border-transparent"}`}
+                        >
+                          <div 
+                            className="w-4 h-4 rounded-full shadow-[inset_0_2px_3px_rgba(0,0,0,0.9)]"
+                            style={{ backgroundColor: c.hex }}
+                          />
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* Switch to Full Bar view */}
+                <button
+                  onClick={() => {
+                    setMode("bar");
+                    setIsFabOpen(false);
+                  }}
+                  title="Switch to Full Bar view"
+                  aria-label="Switch to Full Bar view"
+                  style={{ minWidth: 40, minHeight: 40 }}
+                  className="flex items-center justify-center rounded-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] transition-all cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                </button>
+
+                {/* Undo / Redo */}
+                <div className="flex items-center bg-[#cca162]/10 border border-[#cca162]/30 rounded-full p-[2px] h-9">
+                  <button
+                    onClick={() => editor.undo()}
+                    disabled={!canUndo}
+                    aria-label="Undo"
+                    title="Undo last stroke"
+                    style={{ width: 34, height: 34 }}
+                    className="flex items-center justify-center rounded-l-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="w-[1px] h-4 bg-[#cca162]/20" />
+                  <button
+                    onClick={() => editor.redo()}
+                    disabled={!canRedo}
+                    aria-label="Redo"
+                    title="Redo next stroke"
+                    style={{ width: 34, height: 34 }}
+                    className="flex items-center justify-center rounded-r-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Redo2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Floating Action Trigger Button */}
+        <div className="flex items-center gap-2">
+          {/* External Quick Undo Button when collapsed */}
+          {!isFabOpen && (
+            <button
+              onClick={() => editor.undo()}
+              disabled={!canUndo}
+              aria-label="Undo stroke"
+              title="Undo stroke"
+              style={{ width: 44, height: 44 }}
+              className="flex items-center justify-center rounded-full bg-gradient-to-b from-[#2e1d11] to-[#1e130a] border-2 border-[#cca162]/70 text-[#ebdcb9] shadow-[0_8px_20px_rgba(0,0,0,0.7)] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Main Floating Action Button */}
+          <button
+            onClick={() => setIsFabOpen(!isFabOpen)}
+            aria-label={isFabOpen ? "Close menu" : "Open Scriptorium Tools"}
+            title={isFabOpen ? "Close menu" : "Open Scriptorium Tools"}
+            style={{ width: 56, height: 56 }}
+            className={`relative flex items-center justify-center rounded-full bg-gradient-to-b from-[#3a2517] via-[#2e1d11] to-[#180e07] border-2 border-[#cca162] text-[#fdfcf7] shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.2)] active:scale-95 transition-all duration-200 cursor-pointer ${
+              isFabOpen ? "scale-105 border-[#ebdcb9]" : "hover:scale-105"
+            }`}
+          >
+            {/* Ink indicator ring on the FAB border */}
+            <div 
+              className="absolute inset-1 rounded-full border border-dashed opacity-60 pointer-events-none transition-colors duration-300"
+              style={{ borderColor: activeColorHex }}
+            />
+
+            {/* Icon: displays current active tool icon or X when open */}
+            <div className="relative z-10 flex items-center justify-center">
+              {isFabOpen ? (
+                <X className="w-5 h-5 text-[#ebdcb9]" />
+              ) : (
+                <div className="flex items-center justify-center text-[#ebdcb9]">
+                  {getToolIcon(currentTool)}
+                  <Plus className="w-3 h-3 absolute -bottom-1 -right-1 text-[#cca162]" />
+                </div>
+              )}
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 2. FULL BAR MODE (Optional expanded mode) ────────────────────────────
   return (
-    <motion.div
-      layout
-      drag="y"
-      dragListener={false}
-      dragControls={dragControls}
-      dragConstraints={{ top: 0, bottom: 0 }}
-      onDragEnd={handleDragEnd}
-      className={`fixed left-1/2 z-50 flex flex-col items-center`}
-      style={{ 
+    <div
+      className="fixed left-1/2 z-50 flex flex-col items-end pointer-events-auto"
+      style={{
         x: "-50%",
-        bottom: position === "bottom" ? "max(1.25rem, env(safe-area-inset-bottom, 0px) + 0.5rem)" : "auto",
-        top: position === "top" ? "max(1.25rem, env(safe-area-inset-top, 0px) + 0.5rem)" : "auto",
+        bottom: "max(1.25rem, env(safe-area-inset-bottom, 0px) + 0.5rem)",
         touchAction: 'none'
       }}
     >
-      {/* Contextual hint — only shown for non-draw tools */}
-      {hint && (
-        <div className={`text-[#ebdcb9]/70 text-[10px] font-serif tracking-wide animate-fade-in select-none pointer-events-none ${isTop ? 'order-last mt-1' : 'mb-1'}`}>
-          {hint}
-        </div>
-      )}
-
-      {/* Color Palette Popover (Rendered outside overflow container) */}
+      {/* Color Palette Popover */}
       {isColorPickerOpen && (
-        <div className={`flex items-center gap-2 bg-[#2e1d11]/90 backdrop-blur-md border border-[#cca162]/30 p-2 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85)] animate-fade-in pointer-events-auto ${isTop ? 'order-last mt-2' : 'mb-2'}`}>
+        <div className="flex items-center gap-2 bg-[#2e1d11]/90 backdrop-blur-md border border-[#cca162]/30 p-2 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85)] animate-fade-in pointer-events-auto mb-2">
           {INK_COLORS.map((c) => (
             <button
               key={c.id}
@@ -166,31 +379,17 @@ export default function MedievalToolbar({
 
       <div
         id="medieval-toolbar"
-        className="flex items-center gap-2 bg-gradient-to-b from-[#2e1d11] via-[#422e1b] to-[#1e130a] border-2 border-[#cca162] pl-3 pr-2 py-1.5 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.15)] select-none pointer-events-auto overflow-x-auto overflow-y-hidden cursor-grab active:cursor-grabbing"
-        style={{ maxWidth: "min(95vw, 440px)", scrollbarWidth: "none" }}
-        onPointerDown={(e) => {
-          if ((e.target as HTMLElement).closest("button")) return;
-          dragControls.start(e);
-        }}
+        className="flex items-center gap-2 bg-gradient-to-b from-[#2e1d11] via-[#422e1b] to-[#1e130a] border-2 border-[#cca162] pl-3 pr-2 py-1.5 rounded-full shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.15)] select-none pointer-events-auto overflow-x-auto overflow-y-hidden"
+        style={{ maxWidth: "min(95vw, 480px)", scrollbarWidth: "none" }}
       >
-        {/* Pointer (Select) */}
         {btn("select", <MousePointer2 className="w-3.5 h-3.5" />, "Select")}
-
-        {/* Hand (Pan) */}
         {btn("hand",   <Hand className="w-3.5 h-3.5" />, "Pan")}
-
-        {/* Draw (Quill) — primary tool */}
         {btn("draw",   <Feather className="w-3.5 h-3.5" />, "Quill")}
-
-        {/* Text — tap scroll to place text inline */}
-        {btn("text",   <Type    className="w-3.5 h-3.5" />, "Write text")}
-
-        {/* Eraser */}
-        {btn("eraser", <Eraser  className="w-3.5 h-3.5" />, "Erase")}
+        {btn("text",   <Type className="w-3.5 h-3.5" />, "Write text")}
+        {btn("eraser", <Eraser className="w-3.5 h-3.5" />, "Erase")}
 
         {divider}
 
-        {/* Date Toggle */}
         <button
           onClick={onToggleDate}
           aria-label="Toggle Date"
@@ -228,9 +427,8 @@ export default function MedievalToolbar({
 
         {divider}
 
-        {/* Unified Temporal Controls (Undo & Redo) */}
+        {/* Undo & Redo */}
         <div className="flex items-center bg-[#cca162]/5 border border-[#cca162]/20 rounded-full p-[2px] h-11 shrink-0">
-          {/* Undo Part */}
           <button
             onClick={() => editor.undo()}
             disabled={!canUndo}
@@ -241,10 +439,7 @@ export default function MedievalToolbar({
           >
             <Undo2 className="w-3.5 h-3.5" />
           </button>
-
           <div className="w-[1px] h-5 bg-[#cca162]/20 self-center" />
-
-          {/* Redo Part */}
           <button
             onClick={() => editor.redo()}
             disabled={!canRedo}
@@ -256,7 +451,38 @@ export default function MedievalToolbar({
             <Redo2 className="w-3.5 h-3.5" />
           </button>
         </div>
+
+        {divider}
+
+        {/* Expand / Minimize Canvas */}
+        {onToggleExpand && (
+          <button
+            onClick={onToggleExpand}
+            aria-label={isExpanded ? "Exit Full Canvas" : "Expand Canvas"}
+            title={isExpanded ? "Exit Full Canvas" : "Expand canvas to full view"}
+            style={{ minWidth: 44, minHeight: 44 }}
+            className={`flex items-center justify-center rounded-full transition-all duration-200 shrink-0 cursor-pointer ${
+              isExpanded
+                ? "bg-[#8a241b] text-[#fdfcf7] shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] border border-[#e3bf8c]/40"
+                : "text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee]"
+            }`}
+          >
+            {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        )}
+
+        {/* Switch back to FAB mode */}
+        <button
+          onClick={() => setMode("fab")}
+          title="Switch to Floating Action Button mode"
+          aria-label="Switch to Floating Action Button mode"
+          style={{ minWidth: 44, minHeight: 44 }}
+          className="flex items-center justify-center rounded-full text-[#ebdcb9]/80 hover:bg-[#cca162]/15 hover:text-[#fffbee] transition-all cursor-pointer shrink-0"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+        </button>
       </div>
-    </motion.div>
+    </div>
   );
 }
+

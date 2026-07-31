@@ -41,15 +41,18 @@ const shouldSuppressMessage = (args: any[]) => {
       }
       return false;
     }
+    const lower = arg.toLowerCase();
     return (
-      arg.includes("No tldraw license key provided") ||
-      arg.includes("A license is required for production deployments") ||
-      arg.includes("sales@tldraw.com") ||
-      arg.includes("Unable to preventDefault inside passive event listener invocation") ||
-      arg.includes("passive event listener") ||
-      arg.includes("ResizeObserver loop completed") ||
-      arg.includes("ResizeObserver loop limit exceeded") ||
-      arg.trim() === "-------------------------------------------------------------------"
+      lower.includes("tldraw") ||
+      lower.includes("license") ||
+      lower.includes("sales@tldraw.com") ||
+      lower.includes("vercel web analytics") ||
+      lower.includes("vercel analytics") ||
+      lower.includes("unable to preventdefault inside passive event listener") ||
+      lower.includes("passive event listener") ||
+      lower.includes("resizeobserver loop completed") ||
+      lower.includes("resizeobserver loop limit exceeded") ||
+      arg.includes("-------------------------------------------------------------------")
     );
   });
 };

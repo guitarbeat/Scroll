@@ -814,7 +814,7 @@ export default function App() {
           isExpanded ? "canvas-expanded" : ""
         }`}
         style={{
-          transform: isExpanded ? "none" : `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'}))`,
+          transform: isExpanded ? "none" : "translate(-50%, -50%)",
           transformOrigin: "center center",
         }}
       >
@@ -1012,7 +1012,7 @@ export default function App() {
           </filter>
         </defs>
       </svg>
-      <Analytics />
+      <Analytics debug={false} />
     </div>
   );
 }

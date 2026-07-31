@@ -147,8 +147,8 @@ export default function MedievalToolbar({
         ref={menuRef}
         className="fixed z-50 flex flex-col items-end pointer-events-auto"
         style={{
-          bottom: "max(1.25rem, env(safe-area-inset-bottom, 0px) + 0.5rem)",
-          right: "max(1.25rem, env(safe-area-inset-right, 0px) + 0.5rem)",
+          bottom: "max(1.5rem, env(safe-area-inset-bottom, 0px) + 0.75rem)",
+          right: "max(1.5rem, env(safe-area-inset-right, 0px) + 0.75rem)",
         }}
       >
         {/* Speed Dial Menu Popover */}
@@ -347,7 +347,7 @@ export default function MedievalToolbar({
 
             {/* Ink Color Indicator Dot */}
             <div 
-              className="absolute top-0 right-0 w-4 h-4 rounded-full border-2 border-[#cca162] shadow-[0_2px_6px_rgba(0,0,0,0.9)] transition-colors duration-300"
+              className="absolute top-1 right-1 w-4 h-4 rounded-full border-2 border-[#cca162] shadow-[0_2px_6px_rgba(0,0,0,0.9)] transition-colors duration-300"
               style={{ backgroundColor: activeColorHex }}
               title={`Active Ink: ${INK_COLORS.find(c => c.id === currentColor)?.name || "Iron Gall"}`}
             />

@@ -1211,6 +1211,12 @@ export default function WritingCanvas({
     <div ref={containerRef}
       className="absolute inset-0 w-full h-full pointer-events-auto touch-none select-none"
       style={{ zIndex: 10 }}
+      onPointerDownCapture={() => {
+        try { (editor as any)?.updateViewportScreenBounds?.(); } catch (_) {}
+      }}
+      onPointerEnter={() => {
+        try { (editor as any)?.updateViewportScreenBounds?.(); } catch (_) {}
+      }}
     >
       <Tldraw
         licenseKey={(import.meta as any).env.VITE_TLDRAW_LICENSE_KEY ||

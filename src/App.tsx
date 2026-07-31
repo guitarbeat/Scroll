@@ -296,9 +296,12 @@ export default function App() {
     if (!isOpened || isUnrolling) return;
 
     const handleResize = () => {
-      setSheetMaxHeight(`${getTargetViewport()}px`);
+      const target = getTargetViewport();
+      const usable = window.innerHeight - 160;
+      setSheetMaxHeight(`${Math.min(target, Math.max(280, usable))}px`);
     };
 
+    handleResize();
     window.addEventListener("resize", handleResize);
     return () => {
       window.removeEventListener("resize", handleResize);
@@ -328,7 +331,8 @@ export default function App() {
 
     // after animation, lock max-height to our target height to enable internal scrolling
     const releaseTimeout = setTimeout(() => {
-      setSheetMaxHeight(`${target}px`);
+      const usable = window.innerHeight - 160;
+      setSheetMaxHeight(`${Math.min(target, Math.max(280, usable))}px`);
       setIsUnrolling(false);
       setShowScrollPrompt(true);
       triggerThud("both");
@@ -659,7 +663,6 @@ export default function App() {
   useEffect(() => {
     if (!isOpened) return;
 
-    let cachedRect: DOMRect | null = null;
     let pendingFrame: number | null = null;
     let lastEvent: PointerEvent | null = null;
 
@@ -674,38 +677,22 @@ export default function App() {
         const sheet = document.getElementById("sheet");
         if (!sheet) return;
 
-        if (!cachedRect) {
-          cachedRect = sheet.getBoundingClientRect();
-        }
+        const rect = sheet.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
 
-        const rect = cachedRect;
         // Calculate cursor position relative to the sheet in percentage
         const x = ((lastEvent.clientX - rect.left) / rect.width) * 100;
         const y = ((lastEvent.clientY - rect.top) / rect.height) * 100;
 
-        sheet.style.setProperty("--candle-x", `${x}%`);
-        sheet.style.setProperty("--candle-y", `${y}%`);
+        sheet.style.setProperty("--candle-x", `${x.toFixed(2)}%`);
+        sheet.style.setProperty("--candle-y", `${y.toFixed(2)}%`);
       });
     };
 
-    const handleScrollOrResize = () => {
-      cachedRect = null; // Invalidate cached rect
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("resize", handleScrollOrResize, { passive: true });
-
-    const sheetWrap = document.getElementById("sheetWrap");
-    if (sheetWrap) {
-      sheetWrap.addEventListener("scroll", handleScrollOrResize, { passive: true });
-    }
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
 
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("resize", handleScrollOrResize);
-      if (sheetWrap) {
-        sheetWrap.removeEventListener("scroll", handleScrollOrResize);
-      }
       if (pendingFrame !== null) {
         cancelAnimationFrame(pendingFrame);
       }
@@ -827,7 +814,7 @@ export default function App() {
           isExpanded ? "canvas-expanded" : ""
         }`}
         style={{
-          transform: isExpanded ? "none" : `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'})) scale(${rigScale * userZoom})`,
+          transform: isExpanded ? "none" : `translate(-50%, calc(-50% - ${isOpened ? '45px' : '0px'}))`,
           transformOrigin: "center center",
         }}
       >

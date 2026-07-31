@@ -20,8 +20,8 @@ export default function ForestBackground() {
     let frameId: number | null = null;
 
     const updateParallax = () => {
-      // Ultra-smooth linear interpolation
-      const ease = 0.08; // smooth dampening coefficient
+      // Fast & responsive linear interpolation
+      const ease = 0.22; // snappy dampening coefficient
 
       currentScrollY += (targetScrollY - currentScrollY) * ease;
       currentMouseX += (targetMouseX - currentMouseX) * ease;

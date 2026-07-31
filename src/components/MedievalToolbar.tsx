@@ -297,8 +297,8 @@ export default function MedievalToolbar({
           )}
         </AnimatePresence>
 
-        {/* Floating Action Trigger Button */}
-        <div className="flex items-center gap-2">
+        {/* Floating Action Trigger Buttons */}
+        <div className="flex items-center gap-3">
           {/* External Quick Undo Button when collapsed */}
           {!isFabOpen && (
             <button
@@ -306,40 +306,51 @@ export default function MedievalToolbar({
               disabled={!canUndo}
               aria-label="Undo stroke"
               title="Undo stroke"
-              style={{ width: 44, height: 44 }}
-              className="flex items-center justify-center rounded-full bg-gradient-to-b from-[#2e1d11] to-[#1e130a] border-2 border-[#cca162]/70 text-[#ebdcb9] shadow-[0_8px_20px_rgba(0,0,0,0.7)] active:scale-95 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+              style={{ width: 48, height: 48 }}
+              className="flex items-center justify-center rounded-full bg-gradient-to-b from-[#2e1d11] via-[#3a2517] to-[#180e07] border-2 border-[#cca162] text-[#ebdcb9] shadow-[0_10px_24px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.2)] active:scale-95 hover:scale-105 transition-all cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
             >
-              <Undo2 className="w-4 h-4" />
+              <Undo2 className="w-4 h-4 text-[#ebdcb9]" />
             </button>
           )}
 
-          {/* Main Floating Action Button */}
+          {/* Main Floating Action Wax Seal Bubble */}
           <button
             onClick={() => setIsFabOpen(!isFabOpen)}
             aria-label={isFabOpen ? "Close menu" : "Open Scriptorium Tools"}
             title={isFabOpen ? "Close menu" : "Open Scriptorium Tools"}
-            style={{ width: 56, height: 56 }}
-            className={`relative flex items-center justify-center rounded-full bg-gradient-to-b from-[#3a2517] via-[#2e1d11] to-[#180e07] border-2 border-[#cca162] text-[#fdfcf7] shadow-[0_12px_28px_rgba(0,0,0,0.85),_inset_0_1px_1px_rgba(255,255,255,0.2)] active:scale-95 transition-all duration-200 cursor-pointer ${
-              isFabOpen ? "scale-105 border-[#ebdcb9]" : "hover:scale-105"
+            style={{ width: 68, height: 68 }}
+            className={`relative flex items-center justify-center rounded-full transition-all duration-300 cursor-pointer group select-none active:scale-95 ${
+              isFabOpen ? "scale-105 rotate-12" : "hover:scale-108 hover:rotate-3"
             }`}
           >
-            {/* Ink indicator ring on the FAB border */}
-            <div 
-              className="absolute inset-1 rounded-full border border-dashed opacity-60 pointer-events-none transition-colors duration-300"
-              style={{ borderColor: activeColorHex }}
+            {/* Wax Seal Image Graphic */}
+            <img
+              src="/stamp.png"
+              alt="Wax Seal Action Bubble"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.85)] transition-all group-hover:brightness-110"
             />
 
-            {/* Icon: displays current active tool icon or X when open */}
-            <div className="relative z-10 flex items-center justify-center">
+            {/* Subtle Tool / Action Badge overlay on the Seal */}
+            <div className={`absolute inset-0 flex items-center justify-center rounded-full transition-all duration-200 ${
+              isFabOpen ? "bg-black/40 backdrop-blur-[1px]" : "bg-black/10 group-hover:bg-black/30"
+            }`}>
               {isFabOpen ? (
-                <X className="w-5 h-5 text-[#ebdcb9]" />
+                <X className="w-6 h-6 text-[#fdfcf7] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
               ) : (
-                <div className="flex items-center justify-center text-[#ebdcb9]">
+                <div className="relative flex items-center justify-center text-[#fffbee] drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">
                   {getToolIcon(currentTool)}
-                  <Plus className="w-3 h-3 absolute -bottom-1 -right-1 text-[#cca162]" />
+                  <Plus className="w-3.5 h-3.5 absolute -bottom-1 -right-1 text-[#cca162] drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]" />
                 </div>
               )}
             </div>
+
+            {/* Ink Color Indicator Dot */}
+            <div 
+              className="absolute top-0 right-0 w-4 h-4 rounded-full border-2 border-[#cca162] shadow-[0_2px_6px_rgba(0,0,0,0.9)] transition-colors duration-300"
+              style={{ backgroundColor: activeColorHex }}
+              title={`Active Ink: ${INK_COLORS.find(c => c.id === currentColor)?.name || "Iron Gall"}`}
+            />
           </button>
         </div>
       </div>

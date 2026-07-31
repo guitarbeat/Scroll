@@ -118,7 +118,7 @@ function GhostCursors({
           <div
             key={sid}
             style={{
-              position: "absolute",
+              position: "fixed",
               left: screen.x,
               top: screen.y,
               pointerEvents: "none",
@@ -207,7 +207,10 @@ function CommunalSync({
 
   useEffect(() => {
     const isShapeRecord = (r: any) =>
-      r && (r.typeName === "shape" || r.typeName === "asset");
+      r &&
+      typeof r === "object" &&
+      typeof r.id === "string" &&
+      (r.typeName === "shape" || r.typeName === "asset");
 
     const getStoreAndSchema = (snapshot: any) => {
       if (!snapshot) return { store: {} as Record<string, any>, schema: null as any };
@@ -236,15 +239,17 @@ function CommunalSync({
             const data = await res.json();
             if (data && data.shapes) {
               for (const [id, record] of Object.entries(data.shapes)) {
-                if (isShapeRecord(record)) {
+                if (typeof id === "string" && isShapeRecord(record)) {
                   accumulatedShapes[id] = record;
                 }
               }
             }
-            if (data && data.deleted) {
+            if (data && Array.isArray(data.deleted)) {
               for (const id of data.deleted) {
-                accumulatedDeleted.add(id);
-                delete accumulatedShapes[id];
+                if (typeof id === "string") {
+                  accumulatedDeleted.add(id);
+                  delete accumulatedShapes[id];
+                }
               }
             }
           }
@@ -263,19 +268,25 @@ function CommunalSync({
               if (msg.name === "delta" && msg.data) {
                 const { upserted = {}, deleted = [] } = msg.data as {
                   upserted: Record<string, any>;
-                  deleted: string[];
+                  deleted: any[];
                 };
 
-                for (const [id, record] of Object.entries(upserted)) {
-                  if (isShapeRecord(record)) {
-                    accumulatedShapes[id] = record;
-                    accumulatedDeleted.delete(id);
+                if (upserted && typeof upserted === "object") {
+                  for (const [id, record] of Object.entries(upserted)) {
+                    if (typeof id === "string" && isShapeRecord(record)) {
+                      accumulatedShapes[id] = record;
+                      accumulatedDeleted.delete(id);
+                    }
                   }
                 }
 
-                for (const id of deleted) {
-                  delete accumulatedShapes[id];
-                  accumulatedDeleted.add(id);
+                if (Array.isArray(deleted)) {
+                  for (const id of deleted) {
+                    if (typeof id === "string") {
+                      delete accumulatedShapes[id];
+                      accumulatedDeleted.add(id);
+                    }
+                  }
                 }
               }
             }
@@ -290,23 +301,36 @@ function CommunalSync({
           console.warn("[CommunalSync] Ably history fetch failed:", err);
         }
 
-        const toPut = Object.values(accumulatedShapes);
+        const toPut = Object.values(accumulatedShapes).filter(isShapeRecord);
         if (toPut.length > 0) {
-          editor.store.put(toPut);
+          try {
+            editor.store.put(toPut);
+          } catch (err) {
+            console.warn("[CommunalSync] Error putting shapes during initial load:", err);
+          }
         }
 
         const toRemove = Array.from(accumulatedDeleted).filter((id) => {
-          const r = editor.store.get(id as any);
-          return r && isShapeRecord(r);
+          if (typeof id !== "string") return false;
+          try {
+            const r = editor.store.get(id as any);
+            return r && isShapeRecord(r);
+          } catch {
+            return false;
+          }
         });
         if (toRemove.length > 0) {
-          editor.store.remove(toRemove as any[]);
+          try {
+            editor.store.remove(toRemove as any[]);
+          } catch (err) {
+            console.warn("[CommunalSync] Error removing shapes during initial load:", err);
+          }
         }
 
         // Seed diff-tracking maps
         const { store } = getStoreAndSchema(getSnapshot(editor.store));
         for (const [id, record] of Object.entries(store)) {
-          if (isShapeRecord(record)) {
+          if (typeof id === "string" && isShapeRecord(record)) {
             const serialized = JSON.stringify(record);
             knownAblyShapeIdsRef.current.add(id);
             lastSentAblyRef.current[id] = serialized;
@@ -327,28 +351,40 @@ function CommunalSync({
     // ── shapes channel: receive deltas from other clients instantly ──────────
     const onShapeDelta = (msg: Ably.Message) => {
       if (!isInitialLoadDoneRef.current) return;
-      const { upserted = {}, deleted = [] } = msg.data as {
+      const { upserted = {}, deleted = [] } = (msg.data || {}) as {
         upserted: Record<string, any>;
-        deleted: string[];
+        deleted: any[];
       };
 
-      const toPut = Object.values(upserted).filter(isShapeRecord);
+      const toPut = Object.values(upserted || {}).filter(isShapeRecord);
       // Only apply shapes that weren't sent by us
       const filtered = toPut.filter((r: any) => {
         const serialized = JSON.stringify(r);
         return lastSentAblyRef.current[r.id] !== serialized;
       });
 
-      const toRemove = (deleted as string[]).filter(
-        (id) => knownAblyShapeIdsRef.current.has(id) &&
-          editor.store.get(id as any) !== undefined
+      const toRemove = (Array.isArray(deleted) ? deleted : []).filter(
+        (id): id is string =>
+          typeof id === "string" &&
+          knownAblyShapeIdsRef.current.has(id) &&
+          (() => {
+            try {
+              return editor.store.get(id as any) !== undefined;
+            } catch {
+              return false;
+            }
+          })()
       );
 
       if (filtered.length === 0 && toRemove.length === 0) return;
 
       isApplyingRemoteRef.current = true;
       if (filtered.length > 0) {
-        editor.store.put(filtered);
+        try {
+          editor.store.put(filtered);
+        } catch (err) {
+          console.warn("[CommunalSync] Error putting remote delta shapes:", err);
+        }
         for (const r of filtered) {
           const serialized = JSON.stringify(r);
           knownAblyShapeIdsRef.current.add(r.id);
@@ -359,7 +395,11 @@ function CommunalSync({
         }
       }
       if (toRemove.length > 0) {
-        editor.store.remove(toRemove as any[]);
+        try {
+          editor.store.remove(toRemove as any[]);
+        } catch (err) {
+          console.warn("[CommunalSync] Error removing remote delta shapes:", err);
+        }
         for (const id of toRemove) {
           knownAblyShapeIdsRef.current.delete(id);
           delete lastSentAblyRef.current[id];
@@ -668,6 +708,7 @@ function CameraLock({ userZoom }: CameraLockProps) {
         if (forceRecalculateRect || cachedTargetZoom === null) {
           const container = editor.getContainer();
           if (container) {
+            try { (editor as any).updateViewportScreenBounds(); } catch (_) {}
             const rect = container.getBoundingClientRect();
             if (rect.width) {
               const baselineZoom = rect.width / VIRTUAL_WIDTH;

@@ -160,7 +160,8 @@ body {
   );
   opacity: 0.5;
   animation: flicker-glow 2.8s infinite alternate ease-in-out;
-  transition: background 0.18s cubic-bezier(0.1, 0.8, 0.25, 1); /* organic point-light lag */
+  transition: none; /* Instant 1:1 responsive cursor spotlight tracking */
+  will-change: background;
 }
 
 .candle-glow::before {
@@ -188,7 +189,8 @@ body {
   );
   opacity: 0.95;
   animation: flicker-shadow 3.6s infinite alternate ease-in-out;
-  transition: background 0.18s cubic-bezier(0.1, 0.8, 0.25, 1); /* organic point-light lag */
+  transition: none; /* Instant 1:1 responsive cursor spotlight tracking */
+  will-change: background;
 }
 
 /* Mobile & Touch performance boost: turn off expensive mix-blend-mode calculations and constant flicker loops */

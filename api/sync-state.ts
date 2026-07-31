@@ -1,16 +1,77 @@
 import { createClient } from "redis";
 
 // ---------------------------------------------------------------------------
+// In-memory fallback store when Redis is disabled or fails
+// ---------------------------------------------------------------------------
+let memorySchema: any = null;
+const memoryShapes: Record<string, any> = {};
+const memoryDeleted = new Set<string>();
+
+function updateMemoryStore(schema?: any, upserted?: Record<string, any>, deleted?: string[]) {
+  if (schema) memorySchema = schema;
+  if (upserted && typeof upserted === "object") {
+    for (const [id, record] of Object.entries(upserted)) {
+      memoryShapes[id] = record;
+      memoryDeleted.delete(id);
+    }
+  }
+  if (deleted && Array.isArray(deleted)) {
+    for (const id of deleted) {
+      delete memoryShapes[id];
+      memoryDeleted.add(id);
+    }
+  }
+}
+
+function getMemoryStoreResponse() {
+  if (!memorySchema && Object.keys(memoryShapes).length === 0) {
+    return { status: "empty" };
+  }
+  return {
+    schema: memorySchema,
+    shapes: memoryShapes,
+    deleted: Array.from(memoryDeleted),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Redis connection — reused across warm serverless invocations
 // ---------------------------------------------------------------------------
 let redisClient: any = null;
 let isConnecting = false;
+let isRedisDisabled = false;
+
+function isAuthError(err: any): boolean {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  return (
+    msg.includes("wrongpass") ||
+    msg.includes("invalid username-password") ||
+    msg.includes("user is disabled") ||
+    msg.includes("noauth") ||
+    msg.includes("auth")
+  );
+}
+
+function markRedisDisabled(reason: any) {
+  if (!isRedisDisabled) {
+    isRedisDisabled = true;
+  }
+  if (redisClient) {
+    try {
+      redisClient.disconnect();
+    } catch (_) {}
+    redisClient = null;
+  }
+}
 
 const getRedisClient = async () => {
+  if (isRedisDisabled) return null;
   if (redisClient && redisClient.isOpen) return redisClient;
 
   if (isConnecting) {
     while (isConnecting) await new Promise((r) => setTimeout(r, 50));
+    if (isRedisDisabled) return null;
     return redisClient;
   }
 
@@ -19,14 +80,28 @@ const getRedisClient = async () => {
 
   isConnecting = true;
   try {
-    const client = createClient({ url });
-    client.on("error", (err: any) => console.log("Redis Client Error", err));
+    const client = createClient({
+      url,
+      socket: {
+        connectTimeout: 5000,
+        reconnectStrategy: (retries, cause) => {
+          if (isAuthError(cause) || retries >= 2) {
+            return false; // Stop reconnecting immediately on auth error or repeated failures
+          }
+          return Math.min(retries * 200, 1000);
+        },
+      },
+    });
+
+    client.on("error", (err: any) => {
+      markRedisDisabled(err);
+    });
+
     await client.connect();
     redisClient = client;
     return redisClient;
-  } catch (err) {
-    console.error("Failed to connect to Redis:", err);
-    redisClient = null;
+  } catch (err: any) {
+    markRedisDisabled(err);
     return null;
   } finally {
     isConnecting = false;
@@ -98,7 +173,9 @@ export default async function handler(req: any, res: any) {
   if (req.method === "GET") {
     try {
       const client = await getRedisClient();
-      if (!client) return res.status(200).json({ status: "empty" });
+      if (!client) {
+        return res.status(200).json(getMemoryStoreResponse());
+      }
 
       // Fetch schema, shape keys (via non-blocking SCAN), and deleted set in parallel
       const [schemaStr, shapeKeys, deletedIds] = await Promise.all([
@@ -108,7 +185,7 @@ export default async function handler(req: any, res: any) {
       ]);
 
       if (!schemaStr && shapeKeys.length === 0) {
-        return res.status(200).json({ status: "empty" });
+        return res.status(200).json(getMemoryStoreResponse());
       }
 
       const shapes: Record<string, any> = {};
@@ -125,14 +202,17 @@ export default async function handler(req: any, res: any) {
         }
       }
 
+      const parsedSchema = schemaStr ? JSON.parse(schemaStr) : null;
+      updateMemoryStore(parsedSchema, shapes, deletedIds || []);
+
       return res.status(200).json({
-        schema: schemaStr ? JSON.parse(schemaStr) : null,
+        schema: parsedSchema,
         shapes,
         deleted: deletedIds || [],
       });
     } catch (error: any) {
-      console.error("[api/sync-state] GET error:", error);
-      return res.status(200).json({ status: "empty", error: error.message });
+      markRedisDisabled(error);
+      return res.status(200).json(getMemoryStoreResponse());
     }
   }
 
@@ -141,15 +221,20 @@ export default async function handler(req: any, res: any) {
   // Cursors are NOT stored here — they go through Ably Presence instead.
   if (req.method === "POST") {
     try {
-      const client = await getRedisClient();
-      if (!client) return res.status(200).json({ success: false, database: "none" });
-
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-      const { schema, upserted, deleted } = body as {
+      const { schema, upserted, deleted } = (body || {}) as {
         schema?: any;
         upserted?: Record<string, any>;
         deleted?: string[];
       };
+
+      // Always sync to memory store
+      updateMemoryStore(schema, upserted, deleted);
+
+      const client = await getRedisClient();
+      if (!client) {
+        return res.status(200).json({ success: true, database: "memory" });
+      }
 
       const pipeline = client.multi();
 
@@ -174,8 +259,8 @@ export default async function handler(req: any, res: any) {
       await pipeline.exec();
       return res.status(200).json({ success: true, database: "redis" });
     } catch (error: any) {
-      console.error("[api/sync-state] POST error:", error);
-      return res.status(500).json({ success: false, error: error.message });
+      markRedisDisabled(error);
+      return res.status(200).json({ success: true, database: "memory" });
     }
   }
 

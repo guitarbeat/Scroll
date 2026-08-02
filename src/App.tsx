@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Editor } from "tldraw";
-import { Maximize2, Minimize2 } from "lucide-react";
 import ForestBackground from "./components/ForestBackground";
 import WritingCanvas from "./components/WritingCanvas";
 import MedievalToolbar from "./components/MedievalToolbar";
@@ -51,7 +50,6 @@ export default function App() {
   const [particles, setParticles] = useState<Particle[]>([]);
   const [sheetMaxHeight, setSheetMaxHeight] = useState("0px");
   const [dynamicSheetHeight, setDynamicSheetHeight] = useState(720);
-  const [showScrollPrompt, setShowScrollPrompt] = useState(false);
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
   const [userZoom, setUserZoom] = useState(1);
@@ -73,16 +71,22 @@ export default function App() {
     if (!containerEl || containerW === 0) {
        const vw = window.innerWidth;
        let rigW = 0;
-       if (vw <= 480) rigW = vw - 5.5 * 16;
-       else if (vw <= 768) rigW = vw - 8 * 16;
-       else rigW = vw - 11 * 16;
+       if (vw <= 480) rigW = vw - 2.5 * 16;
+       else if (vw <= 768) rigW = vw - 4 * 16;
+       else rigW = vw - 8 * 16;
        
        rigW = Math.min(850, rigW);
        containerW = rigW - 2.25 * 16;
     }
     
-    // Enforce constant aspect ratio: height is always exactly 1.4x the width.
-    return containerW * 1.4;
+    const vh = window.innerHeight;
+    // Calculate total usable height accounting for bottom toolbar (~90px) and top safe area (~16px)
+    const usableRigHeight = Math.max(320, vh - 106);
+    const rollerH = topRollerRef.current?.offsetHeight || 36;
+    const usableSheetHeight = Math.max(250, usableRigHeight - rollerH * 2);
+
+    // Unroll height fills available vertical space comfortably without leaving giant gaps
+    return Math.max(containerW * 1.2, usableSheetHeight);
   };
 
   const triggerThud = (type: "top" | "bottom" | "both") => {
@@ -207,13 +211,44 @@ export default function App() {
     };
   }, [isExpanded, updateRollers]);
 
-  // Toggle cursor helper class on body
+  // Toggle cursor helper class on body and load requested silver feather quill cursor
   useEffect(() => {
     if (isOpened) {
       document.body.classList.add("unrolled-state");
     } else {
       document.body.classList.remove("unrolled-state");
     }
+
+    // Preload & scale the requested silver feather cursor image
+    const SILVER_FEATHER_URL = "https://png.pngtree.com/png-vector/20250321/ourmid/pngtree-illustration-design-of-a-realistic-silver-feather-on-transparent-background-clipart-png-image_15828361.png";
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.referrerPolicy = "no-referrer";
+    img.src = SILVER_FEATHER_URL;
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 36;
+        canvas.height = 36;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, 36, 36);
+          const dataUrl = canvas.toDataURL("image/png");
+          document.documentElement.style.setProperty(
+            "--quill-cursor",
+            `url("${dataUrl}") 2 34, auto`
+          );
+        }
+      } catch (_) {
+        // Fallback to direct URL if canvas is tainted
+        document.documentElement.style.setProperty(
+          "--quill-cursor",
+          `url("${SILVER_FEATHER_URL}") 2 34, auto`
+        );
+      }
+    };
+
     return () => {
       document.body.classList.remove("unrolled-state");
     };
@@ -334,7 +369,6 @@ export default function App() {
       const usable = window.innerHeight - 160;
       setSheetMaxHeight(`${Math.min(target, Math.max(280, usable))}px`);
       setIsUnrolling(false);
-      setShowScrollPrompt(true);
       triggerThud("both");
     }, 3600);
 
@@ -440,7 +474,6 @@ export default function App() {
       sheetWrapRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
     setIsOpeningRig(false);
-    setShowScrollPrompt(false);
 
     // Briefly wait for scroll back to top before collapsing
     setTimeout(() => {
@@ -730,7 +763,7 @@ export default function App() {
       </div>
 
       {/* ======= WAX SEAL INTRO ======= */}
-      {sealVisible && (
+      {sealVisible && !isOpened && !isOpeningRig && (
         <div
           id="sealScene"
           className="transition-opacity duration-700"
@@ -814,7 +847,9 @@ export default function App() {
           isExpanded ? "canvas-expanded" : ""
         }`}
         style={{
-          transform: isExpanded ? "none" : "translate(-50%, -50%)",
+          transform: isExpanded
+            ? "none"
+            : `translate(-50%, calc(-50% - ${isOpened ? "28px" : "0px"})) scale(${rigScale})`,
           transformOrigin: "center center",
         }}
       >
@@ -846,26 +881,11 @@ export default function App() {
           <div className="curl-top" style={{ zIndex: 20 }}></div>
           <div className="curl-bottom" style={{ zIndex: 20 }}></div>
 
-          {/* Subtle medieval scroll prompt */}
-          {showScrollPrompt && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 pointer-events-none animate-pulse">
-              <span className="cinzel text-[10px] tracking-[0.25em] text-[#7a5a2e] uppercase opacity-75">
-                Scroll to explore
-              </span>
-              <span className="text-[#7a1f12] text-xs">▼</span>
-            </div>
-          )}
-
           <div
             ref={sheetWrapRef}
             id="sheetWrap"
             className={isUnrolling ? "is-unrolling" : ""}
             style={{ maxHeight: isExpanded ? "100vh" : sheetMaxHeight }}
-            onScroll={(e) => {
-              if (e.currentTarget.scrollTop > 10) {
-                setShowScrollPrompt(false);
-              }
-            }}
           >
             <div
               id="sheet"
@@ -903,23 +923,7 @@ export default function App() {
                 {/* Flex spacer to push the footer down to the very bottom of the sheet */}
                 <div className="flex-1 w-full pointer-events-none" />
 
-                {/* Signature / colophon */}
-                <footer className="reveal mt-6 text-center pb-4 relative z-20 pointer-events-auto">
-                  <div className="mt-2 flex justify-center">
-                    <button
-                      onClick={reroll}
-                      className="group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8a1f14] rounded-full transition-transform active:scale-95 hover:scale-105 relative z-30 shadow-md"
-                      aria-label="Roll the scroll again"
-                    >
-                      <img
-                        src="/stamp.png"
-                        alt="Wax Seal"
-                        referrerPolicy="no-referrer"
-                        className="w-24 h-24 object-contain transition-all group-hover:brightness-110"
-                      />
-                    </button>
-                  </div>
-                </footer>
+
               </div>
 
             {/* Writing Canvas — covers the entire parchment and clips exactly to the tattered edge */}
@@ -959,28 +963,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
-      {/* Top Right Quick Expand / Collapse Canvas Button */}
-      {isOpened && (
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-label={isExpanded ? "Exit Full Canvas" : "Expand Canvas"}
-          title={isExpanded ? "Exit Full Canvas" : "Expand canvas to full view"}
-          className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3.5 py-2 rounded-full bg-gradient-to-b from-[#2e1d11] via-[#3a2517] to-[#180e07] border border-[#cca162] text-[#ebdcb9] hover:text-[#fffbee] hover:border-[#ebdcb9] shadow-[0_10px_24px_rgba(0,0,0,0.85)] active:scale-95 transition-all text-xs font-serif cursor-pointer backdrop-blur-md select-none pointer-events-auto"
-        >
-          {isExpanded ? (
-            <>
-              <Minimize2 className="w-3.5 h-3.5 text-[#e06c53]" />
-              <span className="hidden sm:inline">Exit Full Canvas</span>
-            </>
-          ) : (
-            <>
-              <Maximize2 className="w-3.5 h-3.5 text-[#cca162]" />
-              <span className="hidden sm:inline">Expand Canvas</span>
-            </>
-          )}
-        </button>
-      )}
 
       {editor && isOpened && (
         <MedievalToolbar 

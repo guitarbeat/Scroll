@@ -8,7 +8,7 @@ const originalLog = console.log;
 const originalWarn = console.warn;
 const originalError = console.error;
 
-// Patch EventTarget.prototype.addEventListener to make touch/wheel events non-passive by default
+// Patch EventTarget.prototype.addEventListener to make touch events non-passive by default when calling preventDefault
 // This prevents Chrome from throwing "Unable to preventDefault inside passive event listener invocation" errors
 const originalAddEventListener = EventTarget.prototype.addEventListener;
 EventTarget.prototype.addEventListener = function (
@@ -18,13 +18,13 @@ EventTarget.prototype.addEventListener = function (
   options?: boolean | AddEventListenerOptions
 ) {
   let patchedOptions = options;
-  if (type === "touchstart" || type === "touchmove" || type === "touchend" || type === "wheel") {
+  if (type === "touchstart" || type === "touchmove") {
     if (typeof options === "object" && options !== null) {
-      if (options.passive === undefined || options.passive === true) {
+      if (options.passive === undefined) {
         patchedOptions = { ...options, passive: false };
       }
-    } else {
-      patchedOptions = { capture: !!options, passive: false };
+    } else if (typeof options === "boolean") {
+      patchedOptions = { capture: options, passive: false };
     }
   }
   return originalAddEventListener.call(this, type, listener, patchedOptions);
@@ -32,16 +32,15 @@ EventTarget.prototype.addEventListener = function (
 
 const shouldSuppressMessage = (args: any[]) => {
   return args.some(arg => {
-    if (typeof arg !== "string") {
-      if (arg instanceof Error) {
-        return (
-          arg.message.includes("ResizeObserver loop completed") ||
-          arg.message.includes("ResizeObserver loop limit exceeded")
-        );
-      }
-      return false;
+    let str = "";
+    if (typeof arg === "string") {
+      str = arg;
+    } else if (arg instanceof Error) {
+      str = arg.message;
+    } else if (arg && typeof arg === "object") {
+      str = arg.message || arg.toString?.() || "";
     }
-    const lower = arg.toLowerCase();
+    const lower = str.toLowerCase();
     return (
       lower.includes("tldraw") ||
       lower.includes("license") ||
@@ -52,7 +51,10 @@ const shouldSuppressMessage = (args: any[]) => {
       lower.includes("passive event listener") ||
       lower.includes("resizeobserver loop completed") ||
       lower.includes("resizeobserver loop limit exceeded") ||
-      arg.includes("-------------------------------------------------------------------")
+      lower.includes("websocket closed without opened") ||
+      lower.includes("failed to connect to websocket") ||
+      (lower.includes("websocket") && lower.includes("vite")) ||
+      str.includes("-------------------------------------------------------------------")
     );
   });
 };
@@ -72,14 +74,15 @@ console.error = (...args: any[]) => {
   originalError(...args);
 };
 
-// Directly intercept window.onerror to swallow the ResizeObserver warnings completely
+// Directly intercept window.onerror to swallow ResizeObserver and Vite HMR WebSocket errors
 const originalOnError = window.onerror;
 window.onerror = function (message, source, lineno, colno, error) {
-  const msgStr = typeof message === "string" ? message : (message?.toString() || "");
+  const msgStr = (typeof message === "string" ? message : (message?.toString() || error?.message || "")).toLowerCase();
   if (
-    msgStr.includes("ResizeObserver loop completed") ||
-    msgStr.includes("ResizeObserver loop limit exceeded") ||
-    (error && error.message && (error.message.includes("ResizeObserver loop completed") || error.message.includes("ResizeObserver loop limit exceeded")))
+    msgStr.includes("resizeobserver loop completed") ||
+    msgStr.includes("resizeobserver loop limit exceeded") ||
+    msgStr.includes("websocket closed without opened") ||
+    msgStr.includes("failed to connect to websocket")
   ) {
     return true; // Prevents the firing of the default browser error handler
   }
@@ -89,27 +92,36 @@ window.onerror = function (message, source, lineno, colno, error) {
   return false;
 };
 
-// Intercept and ignore ResizeObserver loop completed/limit errors globally
+// Intercept and ignore ResizeObserver & Vite HMR WebSocket errors globally
 window.addEventListener("error", (e) => {
-  const isResizeObserverError = 
-    (e.message && (e.message.includes("ResizeObserver loop completed") || e.message.includes("ResizeObserver loop limit exceeded"))) ||
-    (e.error && e.error.message && (e.error.message.includes("ResizeObserver loop completed") || e.error.message.includes("ResizeObserver loop limit exceeded")));
+  const msg = (e.message || e.error?.message || "").toLowerCase();
+  const isIgnored = 
+    msg.includes("resizeobserver loop") ||
+    msg.includes("websocket closed without opened") ||
+    msg.includes("failed to connect to websocket") ||
+    (msg.includes("websocket") && msg.includes("vite"));
 
-  if (isResizeObserverError) {
+  if (isIgnored) {
     e.stopImmediatePropagation();
     e.preventDefault();
   }
 });
 
-// Also swallow inside promise unhandled rejections if wrapped there
+// Swallow inside promise unhandled rejections (e.g. Vite HMR WebSocket connection failure promises)
 window.addEventListener("unhandledrejection", (e) => {
   const reason = e.reason;
-  if (reason) {
-    const msg = reason.message || (typeof reason === "string" ? reason : "");
-    if (msg.includes("ResizeObserver loop completed") || msg.includes("ResizeObserver loop limit exceeded")) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-    }
+  const msg = (
+    reason?.message || (typeof reason === "string" ? reason : reason?.toString() || "")
+  ).toLowerCase();
+
+  if (
+    msg.includes("resizeobserver loop") ||
+    msg.includes("websocket closed without opened") ||
+    msg.includes("failed to connect to websocket") ||
+    (msg.includes("websocket") && msg.includes("vite"))
+  ) {
+    e.stopImmediatePropagation();
+    e.preventDefault();
   }
 });
 

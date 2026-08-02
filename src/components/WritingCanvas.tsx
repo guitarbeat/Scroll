@@ -969,18 +969,20 @@ export default function WritingCanvas({
     (c: Record<string, RemoteCursor>) => setRemoteCursors(c), []
   );
 
-  // Wheel → scroll parchment, not zoom
+  // Wheel → scroll parchment smoothly, normalize deltaMode
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const handleWheel = (e: WheelEvent) => {
       const sheetWrap = document.getElementById("sheetWrap");
       if (sheetWrap) {
-        sheetWrap.scrollBy(0, e.deltaY);
+        // Normalize line/page delta modes (e.g. Firefox or mouse wheel mode 1)
+        const dy = e.deltaMode === 1 ? e.deltaY * 32 : e.deltaY;
+        sheetWrap.scrollBy(0, dy);
       }
       e.stopPropagation();
     };
-    container.addEventListener("wheel", handleWheel, { capture: true });
+    container.addEventListener("wheel", handleWheel, { capture: true, passive: true });
     return () => container.removeEventListener("wheel", handleWheel, { capture: true });
   }, []);
 

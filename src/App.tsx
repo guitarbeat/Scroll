@@ -681,15 +681,23 @@ export default function App() {
     };
   }, [isOpened, sealCracked]);
 
-  // Window-level wheel capture to scroll the parchment from anywhere
+  // Window-level wheel capture to scroll the parchment smoothly across dev and production
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (isOpened && !isUnrolling && sheetWrapRef.current) {
-        sheetWrapRef.current.scrollTop += e.deltaY;
+        let deltaY = e.deltaY;
+        if (e.deltaMode === 1) {
+          // Line-based scroll (mice/trackpads with line scroll setting)
+          deltaY *= 20;
+        } else if (e.deltaMode === 2) {
+          // Page-based scroll
+          deltaY *= window.innerHeight;
+        }
+        sheetWrapRef.current.scrollTop += deltaY;
       }
     };
-    window.addEventListener("wheel", handleWheel, { passive: true });
-    return () => window.removeEventListener("wheel", handleWheel);
+    window.addEventListener("wheel", handleWheel, { passive: true, capture: true });
+    return () => window.removeEventListener("wheel", handleWheel, true);
   }, [isOpened, isUnrolling]);
 
   // Window-level cursor tracking to compute candlelight position on the scroll

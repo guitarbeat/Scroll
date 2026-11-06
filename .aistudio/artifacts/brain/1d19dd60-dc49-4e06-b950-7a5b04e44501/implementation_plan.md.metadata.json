@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural and technical plan for the medieval ink soaking effect (capillary feathering and darkening over 350-500ms) and comprehensive audit and hardening of pointer-event interactivity across the unrolled parchment and Tldraw layers.",
+  "updatedAt": "2026-11-06T22:09:24.210318064Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

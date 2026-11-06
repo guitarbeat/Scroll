@@ -20,8 +20,7 @@ export default function ForestBackground() {
     let frameId: number | null = null;
 
     const updateParallax = () => {
-      // Fast & responsive linear interpolation
-      const ease = 0.22; // snappy dampening coefficient
+      const ease = 0.18;
 
       currentScrollY += (targetScrollY - currentScrollY) * ease;
       currentMouseX += (targetMouseX - currentMouseX) * ease;
@@ -31,23 +30,20 @@ export default function ForestBackground() {
       const diffX = Math.abs(targetMouseX - currentMouseX);
       const diffY = Math.abs(targetMouseY - currentMouseY);
 
-      // If the values have converged closely enough, snap and stop animation loop to conserve battery/CPU
-      if (diffScroll < 0.05 && diffX < 0.0005 && diffY < 0.0005) {
+      if (diffScroll < 0.08 && diffX < 0.001 && diffY < 0.001) {
         currentScrollY = targetScrollY;
         currentMouseX = targetMouseX;
         currentMouseY = targetMouseY;
         isAnimating = false;
       }
 
-      // Limit background vertical movement to 120px so trees always stay in frame
-      const dampedScroll = Math.min(currentScrollY * 0.15, 120);
+      const dampedScroll = Math.min(currentScrollY * 0.12, 100);
 
-      // Parallax ratios for depth layers
-      const t1 = `translate(${currentMouseX * 5}px, ${-dampedScroll * 0.1 + currentMouseY * 5}px)`;
-      const t2 = `translate(${currentMouseX * 12}px, ${-dampedScroll * 0.25 + currentMouseY * 12}px)`;
-      const t3 = `translate(${currentMouseX * 8}px, ${-dampedScroll * 0.4 + currentMouseY * 8}px)`;
-      const t4 = `translate(${-currentMouseX * 18}px, ${-dampedScroll * 0.55 + currentMouseY * 18}px)`;
-      const t5 = `translate(${currentMouseX * 25}px, ${-dampedScroll * 0.7 + -currentMouseY * 25}px)`;
+      const t1 = `translate3d(${(currentMouseX * 5).toFixed(1)}px, ${(-dampedScroll * 0.1 + currentMouseY * 5).toFixed(1)}px, 0)`;
+      const t2 = `translate3d(${(currentMouseX * 10).toFixed(1)}px, ${(-dampedScroll * 0.22 + currentMouseY * 10).toFixed(1)}px, 0)`;
+      const t3 = `translate3d(${(currentMouseX * 7).toFixed(1)}px, ${(-dampedScroll * 0.35 + currentMouseY * 7).toFixed(1)}px, 0)`;
+      const t4 = `translate3d(${(-currentMouseX * 14).toFixed(1)}px, ${(-dampedScroll * 0.48 + currentMouseY * 14).toFixed(1)}px, 0)`;
+      const t5 = `translate3d(${(currentMouseX * 20).toFixed(1)}px, ${(-dampedScroll * 0.6 - currentMouseY * 20).toFixed(1)}px, 0)`;
 
       if (oneRef.current) oneRef.current.style.transform = t1;
       if (twoRef.current) twoRef.current.style.transform = t2;
@@ -81,55 +77,30 @@ export default function ForestBackground() {
       triggerAnimation();
     };
 
+    let lastMouseTime = 0;
     const handleMouseMove = (e: MouseEvent) => {
+      const now = performance.now();
+      if (now - lastMouseTime < 32) return;
+      lastMouseTime = now;
+
       const w = window.innerWidth;
       const h = window.innerHeight;
-      // Normalize to [-1, 1]
       targetMouseX = (e.clientX - w / 2) / (w / 2);
       targetMouseY = (e.clientY - h / 2) / (h / 2);
       triggerAnimation();
     };
 
-    let lastOrientationTime = 0;
-    const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
-      if (e.gamma === null || e.beta === null) return;
-      
-      const now = performance.now();
-      // Limit gyro updates to ~20fps (every 50ms) to conserve mobile CPU
-      if (now - lastOrientationTime < 50) return;
-      lastOrientationTime = now;
-
-      // gamma is the left-to-right tilt in degrees, where right is positive (-90 to 90)
-      let gamma = e.gamma;
-      // beta is the front-to-back tilt in degrees, where front is positive (-180 to 180)
-      let beta = e.beta;
-
-      // Restrict gamma to -45 to 45
-      gamma = Math.max(-45, Math.min(45, gamma));
-      
-      // Assume a neutral holding position for beta is around 45 degrees
-      // Restrict beta range from 20 to 70 degrees
-      beta = Math.max(20, Math.min(70, beta));
-
-      // Normalize to [-1, 1]
-      targetMouseX = gamma / 45;
-      targetMouseY = (beta - 45) / 25; 
-      
-      triggerAnimation();
-    };
-
-    // Use capturing to listen to scroll events inside sheetWrap as well
-    window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
+    window.addEventListener("scroll", handleScroll, {
+      passive: true,
+      capture: true,
+    });
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
-    window.addEventListener("deviceorientation", handleDeviceOrientation, { passive: true });
 
-    // Initial run to set positions
     updateParallax();
 
     return () => {
       window.removeEventListener("scroll", handleScroll, { capture: true });
       window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("deviceorientation", handleDeviceOrientation);
       if (frameId !== null) {
         cancelAnimationFrame(frameId);
       }
@@ -139,16 +110,16 @@ export default function ForestBackground() {
   return (
     <div className="forest-container">
       <div className="forest-parallax">
-        {/* Layer 5 (Base Trees / Background) */}
+        {/* Layer 5 (Deep Twilight Sky & Distant Canopy) */}
         <div
           ref={fiveRef}
           className="forest-layer"
           style={{
-            backgroundImage: `url("https://tornis.robbowen.digital/img/tree_base.jpg")`,
+            backgroundImage: `url("https://tornis.robbowen.digital/img/tree_base.jpg"), radial-gradient(ellipse at 50% 25%, #16241d 0%, #09120e 55%, #040806 100%)`,
             zIndex: 0,
           }}
         />
-        {/* Layer 4 (Mid Trees) */}
+        {/* Layer 4 (Mid Pine Silhouettes) */}
         <div
           ref={fourRef}
           className="forest-layer"
@@ -157,20 +128,16 @@ export default function ForestBackground() {
             zIndex: 1,
           }}
         />
-        {/* Layer 3 (Middle Mist) */}
-        <div
-          ref={threeRef}
-          className="forest-layer"
-          style={{ zIndex: 2 }}
-        >
+        {/* Layer 3 (Middle Atmospheric Mist) */}
+        <div ref={threeRef} className="forest-layer" style={{ zIndex: 2 }}>
           <div
             className="mist-sway animate-mist-slow"
             style={{
-              backgroundImage: `url("https://tornis.robbowen.digital/img/mist.png")`,
+              backgroundImage: `url("https://tornis.robbowen.digital/img/mist.png"), radial-gradient(ellipse at 50% 70%, rgba(190, 210, 195, 0.06) 0%, transparent 65%)`,
             }}
           />
         </div>
-        {/* Layer 2 (Top Trees) */}
+        {/* Layer 2 (Foreground Ancient Trees) */}
         <div
           ref={twoRef}
           className="forest-layer"
@@ -179,16 +146,12 @@ export default function ForestBackground() {
             zIndex: 3,
           }}
         />
-        {/* Layer 1 (Front Mist) */}
-        <div
-          ref={oneRef}
-          className="forest-layer"
-          style={{ zIndex: 4 }}
-        >
+        {/* Layer 1 (Front Low Mist) */}
+        <div ref={oneRef} className="forest-layer" style={{ zIndex: 4 }}>
           <div
             className="mist-sway animate-mist-fast"
             style={{
-              backgroundImage: `url("https://tornis.robbowen.digital/img/mist.png")`,
+              backgroundImage: `url("https://tornis.robbowen.digital/img/mist.png"), radial-gradient(ellipse at 50% 85%, rgba(215, 195, 160, 0.05) 0%, transparent 60%)`,
             }}
           />
         </div>

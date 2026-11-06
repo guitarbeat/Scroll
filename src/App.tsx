@@ -4,6 +4,10 @@ import { Editor } from "tldraw";
 import ForestBackground from "./components/ForestBackground";
 import WritingCanvas from "./components/WritingCanvas";
 import MedievalToolbar from "./components/MedievalToolbar";
+import WaxSealSvg from "./components/WaxSealSvg";
+import CornerFlourishGenerator from "./components/CornerFlourishGenerator";
+
+const SESSION_UNROLLED_KEY = "scriptorium_unrolled";
 
 interface Mote {
   id: number;
@@ -38,74 +42,44 @@ interface Particle {
 }
 
 export default function App() {
+  const initiallyUnrolled = (() => {
+    try {
+      return sessionStorage.getItem(SESSION_UNROLLED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  })();
+
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [isOpened, setIsOpened] = useState(false);
+  const [isOpened, setIsOpened] = useState(initiallyUnrolled);
   const [isUnrolling, setIsUnrolling] = useState(false);
-  const [isOpeningRig, setIsOpeningRig] = useState(false);
-  const [sealVisible, setSealVisible] = useState(true);
+  const [isOpeningRig, setIsOpeningRig] = useState(initiallyUnrolled);
+  const [sealVisible, setSealVisible] = useState(!initiallyUnrolled);
   const [sealCracked, setSealCracked] = useState(false);
 
   const [motes, setMotes] = useState<Mote[]>([]);
   const [shards, setShards] = useState<Shard[]>([]);
   const [particles, setParticles] = useState<Particle[]>([]);
-  const [sheetMaxHeight, setSheetMaxHeight] = useState("0px");
-  const [dynamicSheetHeight, setDynamicSheetHeight] = useState(720);
+  const [sheetMaxHeight, setSheetMaxHeight] = useState(
+    initiallyUnrolled ? "82vh" : "0px"
+  );
+  const [dynamicSheetHeight, setDynamicSheetHeight] = useState(860);
+
   const [currentTool, setCurrentTool] = useState("draw");
   const [rigScale, setRigScale] = useState(1);
   const [userZoom, setUserZoom] = useState(1);
 
   const [shakeTop, setShakeTop] = useState(false);
   const [shakeBottom, setShakeBottom] = useState(false);
-  const [showDate, setShowDate] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  // ── Scroll proportions: height driven by viewport ───────────────────────
-
-  const getTargetViewport = () => {
-    if (typeof window === "undefined") return 600;
-    
-    let containerEl = document.getElementById("sheetContainer");
-    let containerW = containerEl ? containerEl.offsetWidth : 0;
-    
-    // Fallback if not rendered yet
-    if (!containerEl || containerW === 0) {
-       const vw = window.innerWidth;
-       let rigW = 0;
-       if (vw <= 480) rigW = vw - 2.5 * 16;
-       else if (vw <= 768) rigW = vw - 4 * 16;
-       else rigW = vw - 8 * 16;
-       
-       rigW = Math.min(850, rigW);
-       containerW = rigW - 2.25 * 16;
-    }
-    
-    const vh = window.innerHeight;
-    // Calculate total usable height accounting for bottom toolbar (~90px) and top safe area (~16px)
-    const usableRigHeight = Math.max(320, vh - 106);
-    const rollerH = topRollerRef.current?.offsetHeight || 36;
-    const usableSheetHeight = Math.max(250, usableRigHeight - rollerH * 2);
-
-    // Unroll height fills available vertical space comfortably without leaving giant gaps
-    return Math.max(containerW * 1.2, usableSheetHeight);
-  };
-
-  const triggerThud = (type: "top" | "bottom" | "both") => {
-    if (type === "top" || type === "both") {
-      setShakeTop(true);
-      setTimeout(() => setShakeTop(false), 600);
-    }
-    if (type === "bottom" || type === "both") {
-      setShakeBottom(true);
-      setTimeout(() => setShakeBottom(false), 600);
-    }
-  };
 
   const topRollerRef = useRef<HTMLDivElement>(null);
   const bottomRollerRef = useRef<HTMLDivElement>(null);
   const sheetWrapRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const spotlightRef = useRef<HTMLDivElement>(null);
 
-  // Dragging states
+  // Dragging states for rollers / pull-to-unroll
   const isDraggingRef = useRef(false);
   const isUnrollDraggingRef = useRef(false);
   const startYRef = useRef(0);
@@ -117,138 +91,85 @@ export default function App() {
   const unrollStartYRef = useRef(0);
   const currentUnrollHeightRef = useRef(0);
 
-  // Generate background dust motes on mount
+  const getTargetViewport = useCallback(() => {
+    if (typeof window === "undefined") return 680;
+
+    const vh = window.innerHeight;
+    const deskLedgeHeight = 56;
+    const rollerH = topRollerRef.current?.offsetHeight || 40;
+    const usableRigHeight = Math.max(360, vh - deskLedgeHeight - 16);
+    const usableSheetHeight = Math.max(300, usableRigHeight - rollerH * 2);
+
+    return usableSheetHeight;
+  }, []);
+
+  const triggerThud = useCallback((type: "top" | "bottom" | "both") => {
+    if (type === "top" || type === "both") {
+      setShakeTop(true);
+      setTimeout(() => setShakeTop(false), 500);
+    }
+    if (type === "bottom" || type === "both") {
+      setShakeBottom(true);
+      setTimeout(() => setShakeBottom(false), 500);
+    }
+  }, []);
+
+  // Generate background dust motes on mount (lightweight count for zero lag)
   useEffect(() => {
     const list: Mote[] = [];
-    for (let i = 0; i < 26; i++) {
-      const s = 2 + Math.random() * 5;
+    for (let i = 0; i < 18; i++) {
+      const s = 2 + Math.random() * 4;
       list.push({
         id: i,
         width: s,
         height: s,
         left: Math.random() * 100 + "vw",
         top: 60 + Math.random() * 50 + "vh",
-        animationDuration: 14 + Math.random() * 20 + "s",
+        animationDuration: 16 + Math.random() * 18 + "s",
         animationDelay: -Math.random() * 20 + "s",
       });
     }
     setMotes(list);
   }, []);
 
-  // rigScale: CSS handles width; we compute total height to maintain our constant
-  // aspect ratio, and then scale the entire rig down if it exceeds the viewport,
-  // ensuring it is always fully visible.
+  // Compute rigScale so scroll fills the screen right down to the 56px desk ledge
   useEffect(() => {
     const handleResize = () => {
-      const vh  = window.innerHeight;
-      const vw  = window.innerWidth;
-      
-      const rollerH = topRollerRef.current?.offsetHeight || Math.min(Math.max(24, vw * 0.08), 58);
-      const target  = getTargetViewport();
-      const totalH  = target + rollerH * 2;
-      
-      // Toolbar footprint ensures we don't overlap UI at the bottom
-      const toolbarFootprint = 110;
-      // Also leave a tiny margin at the top
-      const usableHeight = vh - toolbarFootprint - 20; 
-      
-      // Scale down if totalH > usableHeight so it is ALWAYS visible
+      const vh = window.innerHeight;
+      const vw = window.innerWidth;
+      const rollerH =
+        topRollerRef.current?.offsetHeight ||
+        Math.min(Math.max(24, vw * 0.06), 52);
+      const target = getTargetViewport();
+      const totalH = target + rollerH * 2;
+      const deskLedgeFootprint = 60;
+      const usableHeight = vh - deskLedgeFootprint - 12;
       const scale = totalH > usableHeight ? usableHeight / totalH : 1;
       setRigScale(scale);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [getTargetViewport]);
 
-  // Update roller background scroll offset for dynamic rotation
-  const updateRollers = useCallback(() => {
-    if (topRollerRef.current && bottomRollerRef.current && sheetWrapRef.current) {
-      const currentHeight = sheetWrapRef.current.getBoundingClientRect().height;
-      const currentScroll = sheetWrapRef.current.scrollTop;
-
-      // Top roller rotates clockwise, bottom roller rotates counter-clockwise as they unroll.
-      // They both rotate clockwise as we scroll down.
-      const topOffset = currentHeight * 0.45 + currentScroll * 0.6;
-      const bottomOffset = -currentHeight * 0.45 + currentScroll * 0.6;
-
-      topRollerRef.current.style.setProperty("--roller-scroll", `${topOffset}px`);
-      bottomRollerRef.current.style.setProperty("--roller-scroll", `${bottomOffset}px`);
-    }
-  }, []);
-
-  // Sync rollers whenever unroll height or scroll position changes
+  // Notify tldraw of container bounds after expand/minimize settles
   useEffect(() => {
-    updateRollers();
-    const sheetWrap = sheetWrapRef.current;
-    if (!sheetWrap) return;
-
-    const handleScroll = () => {
-      updateRollers();
-    };
-
-    sheetWrap.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      sheetWrap.removeEventListener("scroll", handleScroll);
-    };
-  }, [sheetMaxHeight, isOpened, isUnrolling, updateRollers]);
-
-  // Dispatch smooth 60fps resize events during expand & minimize transitions for tldraw canvas
-  useEffect(() => {
-    updateRollers();
-    let frameId: number;
-    const startTime = performance.now();
-    const animateResize = (now: number) => {
+    const timer = setTimeout(() => {
       window.dispatchEvent(new Event("resize"));
-      if (now - startTime < 650) {
-        frameId = requestAnimationFrame(animateResize);
-      }
-    };
-    frameId = requestAnimationFrame(animateResize);
-    return () => {
-      cancelAnimationFrame(frameId);
-    };
-  }, [isExpanded, updateRollers]);
+      try {
+        (editor as any)?.updateViewportScreenBounds?.();
+      } catch (_) {}
+    }, 460);
+    return () => clearTimeout(timer);
+  }, [isExpanded, editor]);
 
-  // Toggle cursor helper class on body and load requested silver feather quill cursor
+  // Toggle unrolled helper class on body
   useEffect(() => {
     if (isOpened) {
       document.body.classList.add("unrolled-state");
     } else {
       document.body.classList.remove("unrolled-state");
     }
-
-    // Preload & scale the requested silver feather cursor image
-    const SILVER_FEATHER_URL = "https://png.pngtree.com/png-vector/20250321/ourmid/pngtree-illustration-design-of-a-realistic-silver-feather-on-transparent-background-clipart-png-image_15828361.png";
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.referrerPolicy = "no-referrer";
-    img.src = SILVER_FEATHER_URL;
-
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = 36;
-        canvas.height = 36;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 36, 36);
-          const dataUrl = canvas.toDataURL("image/png");
-          document.documentElement.style.setProperty(
-            "--quill-cursor",
-            `url("${dataUrl}") 2 34, auto`
-          );
-        }
-      } catch (_) {
-        // Fallback to direct URL if canvas is tainted
-        document.documentElement.style.setProperty(
-          "--quill-cursor",
-          `url("${SILVER_FEATHER_URL}") 2 34, auto`
-        );
-      }
-    };
-
     return () => {
       document.body.classList.remove("unrolled-state");
     };
@@ -257,41 +178,39 @@ export default function App() {
   // Sync active tool from the Tldraw editor
   useEffect(() => {
     if (!editor) return;
-
     const updateTool = () => {
       try {
         const toolId = editor.getCurrentToolId();
         if (toolId) {
           setCurrentTool(toolId);
         }
-      } catch (e) {
-        // Fallback
-      }
+      } catch (_) {}
     };
-
     const unsubscribe = editor.store.listen(updateTool);
-    updateTool(); // sync initial
-    return () => {
-      unsubscribe();
-    };
+    updateTool();
+    return () => unsubscribe();
   }, [editor]);
 
-  // Page starts with the seal visible — user taps/clicks to break it and unroll
-  // (removed auto-unroll on load)
-
-  // Automatically adjust sheet height based on drawn shapes and window resize
+  // Dynamically grow parchment height as notes/drawings reach the bottom
   useEffect(() => {
     if (!editor) return;
-
     let timeoutId: any;
 
     const updateHeightFromShapes = () => {
       const shapes = editor.getCurrentPageShapes();
       let maxY = 0;
+      const scale = (() => {
+        try {
+          return editor.getCamera().z || 1;
+        } catch {
+          return 1;
+        }
+      })();
+
       shapes.forEach((shape: any) => {
         if (shape.y !== undefined) {
-          const h = shape.props?.h || shape.props?.height || shape.height || 0;
-          const bottom = shape.y + h;
+          const h = shape.props?.h || shape.props?.height || shape.height || 60;
+          const bottom = (shape.y + h) * scale;
           if (bottom > maxY) {
             maxY = bottom;
           }
@@ -299,52 +218,54 @@ export default function App() {
       });
 
       const targetViewport = getTargetViewport();
-      // Minimum height = the full viewport-derived target; expand if shapes go beyond it.
-      const padding = 120;
-      const calculatedHeight = Math.max(targetViewport, Math.min(maxY + padding, 5400));
+      const padding = 320;
+      const calculatedHeight = Math.max(
+        targetViewport,
+        Math.min(maxY + padding, 5400)
+      );
       setDynamicSheetHeight(calculatedHeight);
     };
 
     updateHeightFromShapes();
 
-    const unsubscribe = editor.store.listen(() => {
+    const unsubscribe = editor.store.listen((entry: any) => {
+      const changes = entry.changes;
+      const hasShapeChange =
+        Object.keys(changes?.added || {}).length > 0 ||
+        Object.keys(changes?.removed || {}).length > 0 ||
+        Object.keys(changes?.updated || {}).some((k) => k.startsWith("shape:"));
+      if (!hasShapeChange) return;
+
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        updateHeightFromShapes();
-      }, 800); // 800ms debounce prevents resizing layout reflows during drawing stroke
+      timeoutId = setTimeout(updateHeightFromShapes, 450);
     });
 
-    const handleResizeUpdate = () => {
-      updateHeightFromShapes();
-    };
-    window.addEventListener("resize", handleResizeUpdate);
-
+    window.addEventListener("resize", updateHeightFromShapes);
     return () => {
       clearTimeout(timeoutId);
       unsubscribe();
-      window.removeEventListener("resize", handleResizeUpdate);
+      window.removeEventListener("resize", updateHeightFromShapes);
     };
-  }, [editor]);
+  }, [editor, getTargetViewport]);
 
-  // Keep the viewport max-height updated during window resizes
+  // Keep viewport max-height updated when opened
   useEffect(() => {
     if (!isOpened || isUnrolling) return;
-
     const handleResize = () => {
-      const target = getTargetViewport();
-      const usable = window.innerHeight - 160;
-      setSheetMaxHeight(`${Math.min(target, Math.max(280, usable))}px`);
+      const h = getTargetViewport();
+      setSheetMaxHeight(`${h}px`);
     };
-
     handleResize();
     window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [isOpened, isUnrolling]);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isOpened, isUnrolling, getTargetViewport]);
 
-  // Unrolling logic
-  const unroll = () => {
+  // Snappy V2 unroll animation (1.35s) + session memory
+  const unroll = useCallback(() => {
+    try {
+      sessionStorage.setItem(SESSION_UNROLLED_KEY, "1");
+    } catch (_) {}
+
     setIsOpened(true);
     setIsUnrolling(true);
 
@@ -353,49 +274,50 @@ export default function App() {
       sheetWrapRef.current.scrollTop = 0;
     }
 
-    const target = getTargetViewport();
+    const finalHeight = getTargetViewport();
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setSheetMaxHeight(`${target}px`);
+        setSheetMaxHeight(`${finalHeight}px`);
       });
     });
 
-    // reveal text partway through the unroll
-    const openTimeout = setTimeout(() => setIsOpeningRig(true), 1400);
+    const openTimeout = setTimeout(() => setIsOpeningRig(true), 350);
 
-    // after animation, lock max-height to our target height to enable internal scrolling
     const releaseTimeout = setTimeout(() => {
-      const usable = window.innerHeight - 160;
-      setSheetMaxHeight(`${Math.min(target, Math.max(280, usable))}px`);
+      setSheetMaxHeight(`${finalHeight}px`);
       setIsUnrolling(false);
       triggerThud("both");
-    }, 3600);
+      try {
+        (editor as any)?.updateViewportScreenBounds?.();
+        if (editor) {
+          editor.setCurrentTool("draw");
+        }
+      } catch (_) {}
+    }, 1350);
 
     return () => {
       clearTimeout(openTimeout);
       clearTimeout(releaseTimeout);
     };
-  };
+  }, [getTargetViewport, triggerThud, editor]);
 
-  // Shatter / break wax seal action
-  const breakSeal = () => {
+  // Shatter wax seal action
+  const breakSeal = useCallback(() => {
     if (sealCracked) return;
     setSealCracked(true);
 
     setTimeout(() => {
-      // Hide the original seal
       setSealVisible(false);
 
-      // Generate shatter fragments
-      const fragmentCount = 18;
+      const fragmentCount = 14;
       const shardList: Shard[] = [];
       for (let i = 0; i < fragmentCount; i++) {
         const angle1 = (i / fragmentCount) * Math.PI * 2;
         const angle2 = ((i + 1) / fragmentCount) * Math.PI * 2;
 
-        const centerX = 50 + (Math.random() - 0.5) * 16;
-        const centerY = 50 + (Math.random() - 0.5) * 16;
+        const centerX = 50 + (Math.random() - 0.5) * 14;
+        const centerY = 50 + (Math.random() - 0.5) * 14;
 
         const x1 = 50 + 50 * Math.cos(angle1);
         const y1 = 50 + 50 * Math.sin(angle1);
@@ -408,99 +330,60 @@ export default function App() {
         const yMid = 50 + midRadius * Math.sin(midAngle);
 
         const clipPath = `polygon(${centerX}% ${centerY}%, ${x1}% ${y1}%, ${xMid}% ${yMid}%, ${x2}% ${y2}%)`;
-
         const trajAngle = midAngle + (Math.random() - 0.5) * 0.2;
-        const force = 180 + Math.random() * 260;
-
-        const tx = `${Math.cos(trajAngle) * force}px`;
-        const ty = `${Math.sin(trajAngle) * force + (120 + Math.random() * 180)}px`;
-        const tz = `${(Math.random() - 0.3) * 450}px`;
-
-        const rx = `${(Math.random() - 0.5) * 720}deg`;
-        const ry = `${(Math.random() - 0.5) * 720}deg`;
-        const rz = `${(Math.random() - 0.5) * 540}deg`;
-
-        const duration = `${0.8 + Math.random() * 0.5}s`;
-        const delay = `${Math.random() * 0.05}s`;
+        const force = 160 + Math.random() * 220;
 
         shardList.push({
           id: i,
           clipPath,
-          tx,
-          ty,
-          tz,
-          rx,
-          ry,
-          rz,
-          duration,
-          delay,
+          tx: `${Math.cos(trajAngle) * force}px`,
+          ty: `${Math.sin(trajAngle) * force + (100 + Math.random() * 140)}px`,
+          tz: `${(Math.random() - 0.3) * 380}px`,
+          rx: `${(Math.random() - 0.5) * 640}deg`,
+          ry: `${(Math.random() - 0.5) * 640}deg`,
+          rz: `${(Math.random() - 0.5) * 480}deg`,
+          duration: `${0.65 + Math.random() * 0.35}s`,
+          delay: `${Math.random() * 0.04}s`,
         });
       }
       setShards(shardList);
 
-      // Generate tiny wax particles
-      const particleCount = 24;
+      const particleCount = 16;
       const particleList: Particle[] = [];
       for (let i = 0; i < particleCount; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const force = 100 + Math.random() * 220;
-        const tx = `${Math.cos(angle) * force}px`;
-        const ty = `${Math.sin(angle) * force + (150 + Math.random() * 150)}px`;
-        const tz = `${(Math.random() - 0.5) * 300}px`;
-
-        const size = 3 + Math.random() * 5;
-        const duration = `${0.5 + Math.random() * 0.5}s`;
-
+        const force = 90 + Math.random() * 180;
         particleList.push({
           id: i,
-          tx,
-          ty,
-          tz,
-          size,
-          duration,
+          tx: `${Math.cos(angle) * force}px`,
+          ty: `${Math.sin(angle) * force + (120 + Math.random() * 120)}px`,
+          tz: `${(Math.random() - 0.5) * 240}px`,
+          size: 3 + Math.random() * 4,
+          duration: `${0.45 + Math.random() * 0.35}s`,
         });
       }
       setParticles(particleList);
-    }, 280);
+    }, 220);
 
     setTimeout(() => {
       unroll();
-    }, 850);
-  };
+    }, 520);
+  }, [sealCracked, unroll]);
 
-  // Scroll back up and close/roll the scroll
-  const reroll = () => {
-    if (sheetWrapRef.current) {
-      sheetWrapRef.current.scrollTo({ top: 0, behavior: "smooth" });
-    }
-    setIsOpeningRig(false);
-
-    // Briefly wait for scroll back to top before collapsing
-    setTimeout(() => {
-      setSheetMaxHeight("0px");
-    }, 300);
-
-    setTimeout(() => {
-      setIsOpened(false);
-      setSealVisible(true);
-      setSealCracked(false);
-      setShards([]);
-      setParticles([]);
-      triggerThud("both");
-    }, 3900);
-  };
-
-  // Pull-to-Unroll gesture (Global Pointer Down when closed)
+  // Pull-to-Unroll gesture when closed
   useEffect(() => {
     if (isOpened) return;
 
     const handleGlobalPointerDown = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-
       const target = e.target as HTMLElement;
-      if (target.closest("#sealScene") || target.closest("button") || target.closest("a")) return;
+      if (
+        target.closest("#sealScene") ||
+        target.closest("button") ||
+        target.closest("a")
+      )
+        return;
 
-      // Allow pull anywhere
       isUnrollDraggingRef.current = true;
       unrollStartYRef.current = e.clientY;
       currentUnrollHeightRef.current = 0;
@@ -510,17 +393,15 @@ export default function App() {
       }
 
       document.body.style.userSelect = "none";
-      document.body.style.webkitUserSelect = "none";
       document.body.style.cursor = "grabbing";
     };
 
     window.addEventListener("pointerdown", handleGlobalPointerDown);
-    return () => {
+    return () =>
       window.removeEventListener("pointerdown", handleGlobalPointerDown);
-    };
   }, [isOpened]);
 
-  // Roller physical dragging events (Pointer Down)
+  // Wooden roller drag to scroll
   const onRollerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isOpened) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -528,24 +409,23 @@ export default function App() {
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("a")) return;
 
-    // ---- Opened State: Drag to Scroll ----
     isDraggingRef.current = true;
     startYRef.current = e.clientY;
     lastYRef.current = e.clientY;
     lastTimeRef.current = performance.now();
     velocityRef.current = 0;
-    startScrollYRef.current = sheetWrapRef.current ? sheetWrapRef.current.scrollTop : 0;
+    startScrollYRef.current = sheetWrapRef.current
+      ? sheetWrapRef.current.scrollTop
+      : 0;
 
     if (inertiaFrameRef.current) {
       cancelAnimationFrame(inertiaFrameRef.current);
     }
 
     document.body.style.userSelect = "none";
-    document.body.style.webkitUserSelect = "none";
     document.body.style.cursor = "grabbing";
   };
 
-  // Scoped window-level pointer move, up and cancel event bindings
   useEffect(() => {
     let movePendingFrame: number | null = null;
     let latestPointerEvent: PointerEvent | null = null;
@@ -553,7 +433,6 @@ export default function App() {
     const handlePointerMove = (e: PointerEvent) => {
       if (!isDraggingRef.current && !isUnrollDraggingRef.current) return;
       latestPointerEvent = e;
-
       if (movePendingFrame !== null) return;
 
       movePendingFrame = requestAnimationFrame(() => {
@@ -562,7 +441,6 @@ export default function App() {
 
         const ev = latestPointerEvent;
         if (isDraggingRef.current) {
-          // ---- Scroll Dragging ----
           const currentY = ev.clientY;
           const now = performance.now();
           const dt = now - lastTimeRef.current;
@@ -579,10 +457,8 @@ export default function App() {
           lastYRef.current = currentY;
           lastTimeRef.current = now;
         } else if (isUnrollDraggingRef.current) {
-          // ---- Unroll Pulling ----
           const deltaY = ev.clientY - unrollStartYRef.current;
           if (deltaY > 0) {
-            // Apply springy resistance for the mobile pull-to-refresh feel
             const resistance = 0.55;
             const pulledHeight = Math.min(deltaY * resistance, 150);
             currentUnrollHeightRef.current = pulledHeight;
@@ -605,11 +481,10 @@ export default function App() {
         triggerThud("both");
         return;
       }
-
       if (sheetWrapRef.current) {
         sheetWrapRef.current.scrollTop += velocityRef.current * 16.6;
       }
-      velocityRef.current *= 0.95; // Apply physics friction
+      velocityRef.current *= 0.95;
       inertiaFrameRef.current = requestAnimationFrame(animateInertia);
     };
 
@@ -618,7 +493,6 @@ export default function App() {
         isDraggingRef.current = false;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        document.body.style.webkitUserSelect = "";
 
         if (Math.abs(velocityRef.current) > 0.05) {
           animateInertia();
@@ -627,13 +501,11 @@ export default function App() {
         }
       } else if (isUnrollDraggingRef.current) {
         isUnrollDraggingRef.current = false;
-
         if (sheetWrapRef.current) {
-          sheetWrapRef.current.style.transition = "max-height 0.35s cubic-bezier(0.25, 1, 0.5, 1)";
+          sheetWrapRef.current.style.transition =
+            "max-height 1.35s cubic-bezier(0.22, 1, 0.36, 1)";
         }
-
         document.body.style.userSelect = "";
-        document.body.style.webkitUserSelect = "";
         document.body.style.cursor = "";
 
         const sealSceneEl = document.getElementById("sealScene");
@@ -641,10 +513,7 @@ export default function App() {
           sealSceneEl.style.transform = "";
         }
 
-        if (currentUnrollHeightRef.current >= 60) {
-          if (sheetWrapRef.current) {
-            sheetWrapRef.current.style.transition = "max-height 3.4s cubic-bezier(.65,.02,.28,1)";
-          }
+        if (currentUnrollHeightRef.current >= 55) {
           if (sealSceneEl) {
             breakSeal();
           } else {
@@ -652,9 +521,7 @@ export default function App() {
           }
         } else {
           setSheetMaxHeight("0px");
-          setTimeout(() => {
-            triggerThud("both");
-          }, 350);
+          setTimeout(() => triggerThud("both"), 300);
         }
         currentUnrollHeightRef.current = 0;
       }
@@ -663,91 +530,80 @@ export default function App() {
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerUp);
-    window.addEventListener("mouseleave", handlePointerUp);
-    window.addEventListener("blur", handlePointerUp);
 
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
-      window.removeEventListener("mouseleave", handlePointerUp);
-      window.removeEventListener("blur", handlePointerUp);
-      if (inertiaFrameRef.current) {
+      if (inertiaFrameRef.current)
         cancelAnimationFrame(inertiaFrameRef.current);
-      }
-      if (movePendingFrame !== null) {
-        cancelAnimationFrame(movePendingFrame);
-      }
+      if (movePendingFrame !== null) cancelAnimationFrame(movePendingFrame);
     };
-  }, [isOpened, sealCracked]);
+  }, [isOpened, sealCracked, breakSeal, unroll, triggerThud]);
 
-  // Window-level wheel capture to scroll the parchment smoothly across dev and production
+  // Window-level wheel capture for scrolling the parchment
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (isOpened && !isUnrolling && sheetWrapRef.current) {
         let deltaY = e.deltaY;
-        if (e.deltaMode === 1) {
-          // Line-based scroll (mice/trackpads with line scroll setting)
-          deltaY *= 20;
-        } else if (e.deltaMode === 2) {
-          // Page-based scroll
-          deltaY *= window.innerHeight;
-        }
+        if (e.deltaMode === 1) deltaY *= 24;
+        else if (e.deltaMode === 2) deltaY *= window.innerHeight;
         sheetWrapRef.current.scrollTop += deltaY;
       }
     };
-    window.addEventListener("wheel", handleWheel, { passive: true, capture: true });
+    window.addEventListener("wheel", handleWheel, {
+      passive: true,
+      capture: true,
+    });
     return () => window.removeEventListener("wheel", handleWheel, true);
   }, [isOpened, isUnrolling]);
 
-  // Window-level cursor tracking to compute candlelight position on the scroll
+  // GPU-composited candlelight spotlight tracking (zero DOM repaint/blend thrash)
   useEffect(() => {
     if (!isOpened) return;
-
     let pendingFrame: number | null = null;
-    let lastEvent: PointerEvent | null = null;
+    let lastX = 0;
+    let lastY = 0;
 
     const handlePointerMove = (e: PointerEvent) => {
-      lastEvent = e;
+      if (e.pointerType === "touch") return;
+      lastX = e.clientX;
+      lastY = e.clientY;
       if (pendingFrame !== null) return;
 
       pendingFrame = requestAnimationFrame(() => {
         pendingFrame = null;
-        if (!lastEvent) return;
-
-        const sheet = document.getElementById("sheet");
-        if (!sheet) return;
-
-        const rect = sheet.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
-
-        // Calculate cursor position relative to the sheet in percentage
-        const x = ((lastEvent.clientX - rect.left) / rect.width) * 100;
-        const y = ((lastEvent.clientY - rect.top) / rect.height) * 100;
-
-        sheet.style.setProperty("--candle-x", `${x.toFixed(2)}%`);
-        sheet.style.setProperty("--candle-y", `${y.toFixed(2)}%`);
+        if (spotlightRef.current) {
+          spotlightRef.current.style.setProperty("--candle-px", `${lastX}px`);
+          spotlightRef.current.style.setProperty("--candle-py", `${lastY}px`);
+        }
       });
     };
 
-    window.addEventListener("pointermove", handlePointerMove, { passive: true });
-
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: true,
+    });
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
-      if (pendingFrame !== null) {
-        cancelAnimationFrame(pendingFrame);
-      }
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
     };
   }, [isOpened]);
 
   return (
-    <div className={`min-h-full selection:bg-[#7a1f12] selection:text-[#f2e2b8] ${!isOpened ? 'touch-none' : ''}`}>
+    <div
+      className={`min-h-full selection:bg-[#7a1f12] selection:text-[#f2e2b8] ${
+        !isOpened ? "touch-none" : ""
+      }`}
+    >
       {/* Forest Parallax Background */}
       <ForestBackground />
 
+      {/* GPU-composited candlelight spotlight */}
+      {isOpened && <div ref={spotlightRef} className="candle-spotlight" />}
+
       {/* Ambient dark vignette backdrop overlay when expanding canvas */}
       <div
-        className={`fixed inset-0 z-30 bg-[#0e0804]/70 backdrop-blur-[3px] transition-opacity duration-600 ease-out pointer-events-none ${
+        className={`fixed inset-0 z-30 bg-[#0e0804]/70 backdrop-blur-[2px] transition-opacity duration-400 ease-out pointer-events-none ${
           isExpanded ? "opacity-100" : "opacity-0"
         }`}
       />
@@ -774,7 +630,6 @@ export default function App() {
       {sealVisible && !isOpened && !isOpeningRig && (
         <div
           id="sealScene"
-          className="transition-opacity duration-700"
           style={{
             opacity: sealCracked ? 0 : 1,
             pointerEvents: sealCracked ? "none" : "auto",
@@ -783,11 +638,14 @@ export default function App() {
           <div
             id="seal"
             className={`clickable-seal ${sealCracked ? "seal-crack" : ""}`}
-            title="Break the seal"
+            title="Break the wax seal to unroll the scroll"
             onClick={breakSeal}
           >
-            <span>E</span>
+            <WaxSealSvg size={210} />
           </div>
+          <p className="cinzel text-[#ebdcb9]/85 text-sm tracking-[0.16em] select-none pointer-events-none drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+            Tap the Wax Seal to Unroll
+          </p>
         </div>
       )}
 
@@ -797,8 +655,8 @@ export default function App() {
           id="shatterContainer"
           style={{
             position: "fixed",
-            width: "200px",
-            height: "200px",
+            width: "210px",
+            height: "210px",
             left: "50%",
             top: "50%",
             transform: "translate(-50%, -50%)",
@@ -815,7 +673,6 @@ export default function App() {
               style={{
                 clipPath: shard.clipPath,
                 animation: `fragmentShatter ${shard.duration} cubic-bezier(0.15, 0.85, 0.3, 1) ${shard.delay} forwards`,
-                // Pass target offsets to standard CSS custom variables for standard keyframes
                 WebkitClipPath: shard.clipPath,
                 ["--tx" as any]: shard.tx,
                 ["--ty" as any]: shard.ty,
@@ -825,7 +682,7 @@ export default function App() {
                 ["--rz" as any]: shard.rz,
               }}
             >
-              <span className="blackletter text-[56px] text-[#f3c9b0] select-none pointer-events-none">E</span>
+              <WaxSealSvg size={210} />
             </div>
           ))}
 
@@ -849,22 +706,24 @@ export default function App() {
       {/* ======= THE SCROLL ======= */}
       <div
         id="rig"
-        className={`transition-opacity duration-700 tool-${currentTool} ${
+        className={`tool-${currentTool} ${
           isOpened ? "opacity-100" : "opacity-0"
-        } ${isOpeningRig ? "open" : ""} ${isUnrolling || isOpeningRig ? "will-change-transform" : ""} ${
-          isExpanded ? "canvas-expanded" : ""
-        }`}
+        } ${isOpeningRig ? "open" : ""} ${
+          isUnrolling ? "will-change-transform" : ""
+        } ${isExpanded ? "canvas-expanded" : ""}`}
         style={{
           transform: isExpanded
             ? "none"
-            : `translate(-50%, calc(-50% - ${isOpened ? "28px" : "0px"})) scale(${rigScale})`,
+            : `translate(-50%, calc(-50% - ${
+                isOpened ? "28px" : "0px"
+              })) scale(${rigScale})`,
           transformOrigin: "center center",
         }}
       >
         {/* Top Roller */}
         <div
           ref={topRollerRef}
-          className={`roller ${shakeTop ? "shake-top" : ""} ${isUnrolling ? "will-change-transform" : ""}`}
+          className={`roller ${shakeTop ? "shake-top" : ""}`}
           id="topRoller"
           onPointerDown={onRollerPointerDown}
           onDragStart={(e) => e.preventDefault()}
@@ -884,68 +743,59 @@ export default function App() {
         </div>
 
         {/* Parchment Sheet */}
-        <div id="sheetContainer">
-          {/* Stationary roller shadows */}
-          <div className="curl-top" style={{ zIndex: 20 }}></div>
-          <div className="curl-bottom" style={{ zIndex: 20 }}></div>
+        <div id="sheetContainer" className="pointer-events-auto">
+          <div className="curl-top pointer-events-none" style={{ zIndex: 20, pointerEvents: "none" }}></div>
+          <div className="curl-bottom pointer-events-none" style={{ zIndex: 20, pointerEvents: "none" }}></div>
 
           <div
             ref={sheetWrapRef}
             id="sheetWrap"
-            className={isUnrolling ? "is-unrolling" : ""}
-            style={{ maxHeight: isExpanded ? "100vh" : sheetMaxHeight }}
+            className={`pointer-events-auto ${isUnrolling ? "is-unrolling" : ""}`}
+            style={{ maxHeight: isExpanded ? "calc(100dvh - 56px)" : sheetMaxHeight, pointerEvents: "auto" }}
           >
             <div
               id="sheet"
-              className={`relative tool-${currentTool}`}
-              style={{ minHeight: `${dynamicSheetHeight}px` }}
+              className={`relative tool-${currentTool} pointer-events-auto`}
+              style={{ minHeight: `${dynamicSheetHeight}px`, pointerEvents: "auto" }}
               onDragStart={(e) => e.preventDefault()}
             >
-              {/* Beautiful visual tattered parchment background distorted by the SVG filter */}
-              <div 
-                className={`absolute inset-0 pointer-events-none parchment-bg-container ${isUnrolling ? "will-change-transform" : ""}`}
-                style={{ zIndex: -1 }}
+              {/* Layered Parchment Background with Organic Discoloration & Vellum Noise */}
+              <div
+                className="absolute inset-0 pointer-events-none parchment-bg-container"
+                style={{ zIndex: -1, pointerEvents: "none" }}
               >
-                <div className="absolute inset-0 parchment-tex torn" />
-                <div className="absolute inset-0 candle-glow torn" />
-                <div className="absolute inset-0 candle-shadow torn" />
-                <div className="absolute inset-0 edge-burn torn" />
+                <div className="absolute inset-0 parchment-tex torn pointer-events-none" />
+                <div className="absolute inset-0 parchment-discoloration torn pointer-events-none" />
+                <div className="absolute inset-0 parchment-noise torn pointer-events-none" />
+                <div className="absolute inset-0 parchment-canvas-patina torn pointer-events-none" />
+                <div className="absolute inset-0 edge-burn torn pointer-events-none" />
               </div>
 
-              <div 
-                id="content" 
-                ref={contentRef} 
-                className="relative z-0 flex flex-col justify-between"
-                style={{ minHeight: `${dynamicSheetHeight}px` }}
+              <div
+                id="content"
+                ref={contentRef}
+                className="relative flex flex-col justify-between pointer-events-none select-none"
+                style={{ minHeight: `${dynamicSheetHeight}px`, zIndex: 1, pointerEvents: "none" }}
               >
-                {/* Optional Date of Creation */}
-                {showDate && (
-                  <div className="pt-8 text-center pointer-events-none select-none relative z-20 animate-fade-in">
-                    <span className="cinzel text-[#4a3424] opacity-70 text-lg tracking-[0.1em]">
-                      Anno Domini {new Date().getFullYear()}
-                    </span>
-                    <div className="w-16 h-[1px] bg-[#4a3424]/20 mx-auto mt-2" />
-                  </div>
-                )}
+                {/* Automated Medieval Header & Corner Flourishes — rendered only when fully unrolled */}
+                <CornerFlourishGenerator
+                  isFullyUnrolled={isOpened && !isUnrolling}
+                  year={new Date().getFullYear()}
+                />
 
-                {/* Flex spacer to push the footer down to the very bottom of the sheet */}
                 <div className="flex-1 w-full pointer-events-none" />
-
-
               </div>
 
-            {/* Writing Canvas — covers the entire parchment and clips exactly to the tattered edge */}
-            <div 
-              className="absolute inset-0 z-10 pointer-events-auto touch-none select-none overflow-hidden torn"
-            >
-              <WritingCanvas 
-                onEditorReady={setEditor} 
-                userZoom={userZoom}
-                setUserZoom={setUserZoom}
-              />
+              {/* Writing Canvas — covers the entire parchment and clips to the tattered edge */}
+              <div className="absolute inset-0 z-10 pointer-events-auto touch-none select-none overflow-hidden torn">
+                <WritingCanvas
+                  onEditorReady={setEditor}
+                  userZoom={userZoom}
+                  setUserZoom={setUserZoom}
+                />
+              </div>
             </div>
           </div>
-        </div>
         </div>
 
         {/* Bottom Roller */}
@@ -973,35 +823,13 @@ export default function App() {
       </div>
 
       {editor && isOpened && (
-        <MedievalToolbar 
-          editor={editor} 
-          showDate={showDate}
-          onToggleDate={() => setShowDate(!showDate)}
+        <MedievalToolbar
+          editor={editor}
           isExpanded={isExpanded}
           onToggleExpand={() => setIsExpanded(!isExpanded)}
         />
       )}
 
-      {/* SVG filter for realistic tattered edges */}
-      <svg style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}>
-        <defs>
-          <filter id="medieval-tears">
-            <feTurbulence 
-              type="fractalNoise" 
-              baseFrequency="0.035" 
-              numOctaves="4" 
-              result="noise" 
-            />
-            <feDisplacementMap 
-              in="SourceGraphic" 
-              in2="noise" 
-              scale="15" 
-              xChannelSelector="R" 
-              yChannelSelector="G" 
-            />
-          </filter>
-        </defs>
-      </svg>
       <Analytics debug={false} />
     </div>
   );
